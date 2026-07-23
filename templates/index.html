@@ -1,0 +1,2052 @@
+<!DOCTYPE html>
+<html lang="en" class="dark scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TerraWalk AI — Intelligent Humanoid Kinematics Platform</title>
+
+    <!-- Google Fonts for sleek tech-luxury typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+                        mono: ['"JetBrains Mono"', 'monospace'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#f0fdf4',
+                            500: '#10b981',
+                            600: '#059669',
+                            900: '#064e3b',
+                            accent: '#22d3ee',
+                        },
+                        dark: {
+                            bg: '#050508',
+                            card: '#0c0d14',
+                            border: '#1a1c2a',
+                            subtle: '#121420'
+                        }
+                    },
+                    animation: {
+                        'pulse-glow': 'pulseGlow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'float': 'float 6s ease-in-out infinite',
+                    },
+                    keyframes: {
+                        pulseGlow: {
+                            '0%, 100%': { opacity: 0.8, filter: 'drop-shadow(0 0 15px rgba(16, 185, 129, 0.4))' },
+                            '50%': { opacity: 1, filter: 'drop-shadow(0 0 25px rgba(16, 185, 129, 0.8))' },
+                        },
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0px)' },
+                            '50%': { transform: 'translateY(-10px)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Three.js CDN for client-side WebGL simulation engine -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <!-- Supabase JS Client Library -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <script>
+        window.SUPABASE_URL = "{{ supabase_url }}";
+        window.SUPABASE_ANON_KEY = "{{ supabase_anon_key }}";
+    </script>
+
+    <style>
+        body {
+            background-color: #050508;
+            color: #f1f5f9;
+            overflow-x: hidden;
+        }
+
+        /* Glassmorphism background blur effects */
+        .glass-panel {
+            background: rgba(12, 13, 20, 0.75);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .glass-card {
+            background: rgba(18, 20, 32, 0.6);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        /* Custom minimal scrollbar */
+        ::-webkit-scrollbar {
+            width: 5px;
+            height: 5px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #050508;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #1e2235;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #10b981;
+        }
+
+        /* Shimmer flicker for active computing nodes */
+        .shimmer-flicker {
+            animation: textFlicker 0.8s infinite alternate;
+        }
+        @keyframes textFlicker {
+            0% { opacity: 0.4; text-shadow: 0 0 4px rgba(245,158,11,0.3); }
+            100% { opacity: 1; text-shadow: 0 0 12px rgba(245,158,11,0.8); }
+        }
+
+        /* Hazard warning pulse */
+        .alert-pulse {
+            animation: alertPulse 1.2s infinite;
+        }
+        @keyframes alertPulse {
+            0%, 100% { box-shadow: 0 0 8px rgba(239, 68, 68, 0.4); border-color: rgba(239, 68, 68, 0.6); }
+            50% { box-shadow: 0 0 24px rgba(239, 68, 68, 0.9); border-color: rgba(239, 68, 68, 1); }
+        }
+
+        /* Radial glow accents */
+        .radial-glow-top {
+            background: radial-gradient(circle at 50% 0%, rgba(16, 185, 129, 0.15) 0%, rgba(5, 5, 8, 0) 70%);
+        }
+        .radial-glow-bottom {
+            background: radial-gradient(circle at 50% 100%, rgba(34, 211, 238, 0.1) 0%, rgba(5, 5, 8, 0) 70%);
+        }
+    </style>
+</head>
+<body class="font-sans antialiased text-slate-200 min-h-screen flex flex-col justify-between selection:bg-brand-500 selection:text-slate-950">
+
+    <!-- Global Navigation Header -->
+    <header class="fixed top-0 left-0 right-0 z-50 glass-panel border-b border-white/10 px-6 py-4 flex justify-between items-center transition-all duration-300">
+        <div class="flex items-center space-x-3 cursor-pointer" onclick="switchView('landing')">
+            <div class="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/50 flex items-center justify-center text-emerald-400 font-bold text-lg shadow-[0_0_15px_rgba(16,185,129,0.3)]">
+                T
+            </div>
+            <div>
+                <span class="text-base font-extrabold tracking-widest bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 via-teal-200 to-cyan-400">TERRAWALK AI</span>
+                <span class="block text-[9px] font-mono tracking-wider text-slate-400 uppercase">Kinematic Brain Engine v1.0</span>
+            </div>
+        </div>
+
+        <!-- Navigation items -->
+        <nav class="hidden md:flex items-center space-x-8 text-xs font-semibold tracking-wider text-slate-400 uppercase">
+            <a href="#showcase" class="hover:text-emerald-400 transition-colors" onclick="switchView('landing')">Product</a>
+            <a href="#kinematics" class="hover:text-emerald-400 transition-colors" onclick="switchView('landing')">Architecture</a>
+            <a href="#features" class="hover:text-emerald-400 transition-colors" onclick="switchView('landing')">SIP Model</a>
+        </nav>
+
+        <div class="flex items-center space-x-4">
+            <!-- Connection Status Badge -->
+            <div id="connection-badge" class="px-3 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-full text-[10px] font-mono tracking-wider animate-pulse flex items-center space-x-2">
+                <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping"></span>
+                <span>INITIALIZING HANDSHAKE...</span>
+            </div>
+
+            <!-- Dynamic Auth State Header Section -->
+            <div id="auth-header-container" class="flex items-center space-x-3">
+                <button id="sign-in-nav-btn" onclick="openAuthModal('login')" class="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-slate-300 hover:text-white border border-slate-700/60 rounded-lg hover:border-slate-500 transition-all">
+                    Sign In
+                </button>
+                <div id="user-badge" class="items-center space-x-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-xs font-mono text-emerald-400" style="display: none;">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                    <span id="user-display-name">OPERATOR</span>
+                </div>
+                <button id="sign-out-nav-btn" onclick="handleSignOut()" class="px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-rose-400 hover:text-rose-300 border border-rose-500/30 rounded-lg hover:border-rose-500/60 transition-all" style="display: none;">
+                    Sign Out
+                </button>
+            </div>
+
+            <button onclick="switchView('dashboard')" class="px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-bold text-xs rounded-lg uppercase tracking-wider shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all transform hover:scale-[1.02] active:scale-[0.98]">
+                Launch Console
+            </button>
+        </div>
+    </header>
+
+    <!-- VIEW 1: LANDING PAGE (TinyPod-Inspired Parallax & Product Showcase) -->
+    <div id="landing-view" class="pt-24 min-h-screen flex flex-col justify-between relative transition-opacity duration-500">
+        <div class="absolute inset-0 radial-glow-top pointer-events-none"></div>
+
+        <!-- Hero Section -->
+        <section id="showcase" class="max-w-7xl mx-auto px-6 py-16 md:py-24 grid md:grid-cols-2 gap-12 items-center relative z-10">
+            <div class="space-y-6">
+                <div class="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                    <span>Spherical Inverted Pendulum Matrix</span>
+                </div>
+                <h1 class="text-4xl md:text-6xl font-extrabold tracking-tight text-white leading-tight">
+                    Humanoid Mobility. <br>
+                    <span class="bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 via-cyan-300 to-blue-500">
+                        Zero Friction Intelligence.
+                    </span>
+                </h1>
+                <p class="text-slate-400 text-sm md:text-base leading-relaxed max-w-xl">
+                    TerraWalk AI maps complex high-level natural language instructions directly into dynamically balanced 3D kinematic balance quaternions and real-time Zero-Moment Point (ZMP) trajectories across extreme, hazardous terrains.
+                </p>
+                <div class="flex flex-wrap gap-4 pt-2">
+                    <button onclick="switchView('dashboard')" class="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs uppercase tracking-wider rounded-xl shadow-[0_0_25px_rgba(16,185,129,0.4)] transition-all">
+                        Enter Simulation Matrix
+                    </button>
+                    <button id="hero-create-account-btn" onclick="openAuthModal('signup')" class="px-6 py-3 glass-card hover:bg-white/10 text-white font-semibold text-xs uppercase tracking-wider rounded-xl border border-white/10 transition-all">
+                        Create Operator Account
+                    </button>
+                </div>
+            </div>
+
+            <!-- Parallax Interactive Robot Display Card -->
+            <div class="relative group">
+                <div class="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-cyan-500 rounded-3xl blur-2xl opacity-20 group-hover:opacity-40 transition duration-1000"></div>
+                <div class="relative glass-panel rounded-3xl p-8 border border-white/10 overflow-hidden text-center flex flex-col items-center justify-center min-h-[420px]">
+                    <div class="w-48 h-48 rounded-full bg-gradient-to-tr from-emerald-500/20 to-cyan-500/20 border border-emerald-500/30 flex items-center justify-center relative animate-float">
+                        <div class="w-36 h-36 rounded-full bg-slate-950/80 border border-emerald-400/50 flex flex-col items-center justify-center space-y-1 shadow-[0_0_30px_rgba(16,185,129,0.3)]">
+                            <span class="text-3xl">🤖</span>
+                            <span class="text-[10px] font-mono text-emerald-400 tracking-wider">SIP BALANCED</span>
+                        </div>
+                    </div>
+                    <div class="mt-6 space-y-2">
+                        <h3 class="text-lg font-bold text-white">Autonomous Bipedal Locomotion</h3>
+                        <p class="text-xs text-slate-400 max-w-xs">Dynamic terrain adaptation with real-time Groq Llama 3.1 LLM kinematic trajectory calculations.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Parallax Showcase / Features Grid (The TinyPod Style Scroll Pops) -->
+        <section id="kinematics" class="max-w-7xl mx-auto px-6 py-20 space-y-16 relative z-10">
+            <div class="text-center space-y-3 max-w-2xl mx-auto">
+                <h2 class="text-xs font-mono text-emerald-400 uppercase tracking-widest">Next-Gen Robotics Engine</h2>
+                <p class="text-3xl font-bold text-white tracking-tight">Engineered for Hazardous Traversal</p>
+                <p class="text-xs text-slate-400">Explore how our Spherical Inverted Pendulum model handles extreme slopes, ice, rubble, and active hazards.</p>
+            </div>
+
+            <div class="grid md:grid-cols-3 gap-8">
+                <!-- Feature Card 1 -->
+                <div class="glass-card p-6 rounded-2xl border border-white/5 hover:border-emerald-500/40 transition-all duration-300 transform hover:-translate-y-1 space-y-4">
+                    <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-mono text-sm">01</div>
+                    <h3 class="text-base font-bold text-white">Spherical Inverted Pendulum</h3>
+                    <p class="text-xs text-slate-400 leading-relaxed">
+                        Torso and pelvic balance mapped into unit quaternions for smooth, gimbal-lock-free postural adjustments over steep ground slopes.
+                    </p>
+                </div>
+
+                <!-- Feature Card 2 -->
+                <div class="glass-card p-6 rounded-2xl border border-white/5 hover:border-cyan-500/40 transition-all duration-300 transform hover:-translate-y-1 space-y-4">
+                    <div class="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 font-mono text-sm">02</div>
+                    <h3 class="text-base font-bold text-white">Groq Neural Traversal</h3>
+                    <p class="text-xs text-slate-400 leading-relaxed">
+                        High-speed LLM inference converts natural voice commands directly into biomechanical gait vectors and hazard avoidance routines.
+                    </p>
+                </div>
+
+                <!-- Feature Card 3 -->
+                <div class="glass-card p-6 rounded-2xl border border-white/5 hover:border-teal-500/40 transition-all duration-300 transform hover:-translate-y-1 space-y-4">
+                    <div class="w-10 h-10 rounded-xl bg-teal-500/10 border border-teal-500/30 flex items-center justify-center text-teal-400 font-mono text-sm">03</div>
+                    <h3 class="text-base font-bold text-white">ZMP Capture Projection</h3>
+                    <p class="text-xs text-slate-400 leading-relaxed">
+                        Continuous calculated capture-point projection ensures real-time zero-moment stability, avoiding fall scenarios during jumping or climbing.
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="border-t border-white/10 glass-panel py-8 px-6 text-center text-xs text-slate-500 font-mono">
+            <p>TERRAWALK AI // INTELLIGENT HUMANOID SIMULATION MATRIX</p>
+        </footer>
+    </div>
+
+
+    <!-- VIEW 2: TELEMETRY DASHBOARD (Main Application Workspace) -->
+    <div id="dashboard-view" class="pt-20 px-4 pb-4 h-screen w-screen flex flex-col space-y-3 hidden">
+
+        <!-- Main Workspace Grid -->
+        <main class="flex-1 flex flex-col lg:flex-row space-y-3 lg:space-y-0 lg:space-x-3 min-h-0 overflow-hidden">
+
+            <!-- Control Operations Deck (Left Panel) -->
+            <section class="w-full lg:w-96 glass-panel rounded-2xl p-4 flex flex-col justify-between min-h-0 overflow-hidden border border-white/10">
+                <div class="space-y-4 overflow-y-auto pr-1">
+                    <div class="flex items-center justify-between border-b border-white/10 pb-3">
+                        <div class="flex items-center space-x-2">
+                            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                            <h2 class="text-xs font-bold tracking-wider text-slate-200 uppercase font-mono">Control Operations Deck</h2>
+                        </div>
+                        <button onclick="switchView('landing')" class="text-[10px] font-mono text-slate-400 hover:text-emerald-400 uppercase tracking-wider">
+                            &larr; Exit
+                        </button>
+                    </div>
+
+                    <!-- Environment Parameter Matrix -->
+                    <div class="space-y-3 glass-card p-3 rounded-xl border border-white/5">
+                        <div class="flex flex-col space-y-1.5">
+                            <label class="text-[10px] text-emerald-400/90 font-bold uppercase tracking-wider font-mono">Terrain Biome</label>
+                            <select id="terrain-selector" class="bg-[#0e1019] border border-slate-700/60 text-slate-200 text-xs rounded-lg p-2 focus:outline-none focus:border-emerald-500/80 font-mono">
+                                <option value="flat">Standard Prototyping Grid</option>
+                                <option value="ice">Icy Ridge (Low Friction Slopes)</option>
+                                <option value="rubble">Heavy Rubble (High Contrast Hazards)</option>
+                                <option value="mud">Mud Slide (Sinking Terrain)</option>
+                                <option value="volcanic">Volcanic Crag (Steep Fractures)</option>
+                                <option value="snow">Snow Field (Soft Drift)</option>
+                                <option value="collapsing">Collapsing Ground (Unstable Voids)</option>
+                            </select>
+                        </div>
+
+                        <div class="flex space-x-2">
+                            <button id="generate-terrain-btn" class="flex-1 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 text-[11px] font-bold py-2 rounded-lg uppercase tracking-wider transition-all cursor-pointer font-mono">
+                                🎲 Generate Terrain
+                            </button>
+                            <button id="reset-btn" class="bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-600/40 text-[11px] font-bold px-3 py-2 rounded-lg uppercase tracking-wider transition-all cursor-pointer font-mono">
+                                Reset
+                            </button>
+                        </div>
+
+                        <div class="flex flex-col space-y-1 pt-1">
+                            <div class="flex justify-between text-[11px] font-mono">
+                                <span class="text-slate-400">Ground Friction</span>
+                                <span id="friction-val" class="text-emerald-400 font-bold">0.50</span>
+                            </div>
+                            <input type="range" id="friction-slider" min="0.05" max="1.0" step="0.05" value="0.50" class="w-full accent-emerald-500 bg-slate-800 h-1 rounded cursor-pointer">
+                        </div>
+
+                        <div class="flex flex-col space-y-1">
+                            <div class="flex justify-between text-[11px] font-mono">
+                                <span class="text-slate-400">Matrix Ground Angle</span>
+                                <span id="angle-val" class="text-emerald-400 font-bold">0°</span>
+                            </div>
+                            <input type="range" id="angle-slider" min="-25" max="25" step="1" value="0" class="w-full accent-emerald-500 bg-slate-800 h-1 rounded cursor-pointer">
+                        </div>
+                    </div>
+
+                    <!-- Hazard Status Card -->
+                    <div id="obstacle-card" class="glass-card p-3 rounded-xl space-y-2 border border-white/5">
+                        <div class="flex justify-between items-center">
+                            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Hazard Status</label>
+                            <div class="text-[10px] font-mono text-slate-400">Cleared: <span id="obstacle-count" class="text-emerald-400 font-bold">0 / 0</span></div>
+                        </div>
+                        <div id="active-hazard-line" class="text-[11px] text-slate-300 font-mono">No active hazard. Path is clear.</div>
+                        <div class="text-[10px] text-slate-500 font-mono leading-relaxed pt-1 border-t border-white/5">
+                            Boulder/Crevice &rarr; "jump" / "climb"<br>
+                            Ice Patch &rarr; "crouch" / "sidestep"<br>
+                            Debris &rarr; "climb" / "sidestep left/right"<br>
+                            Detour &rarr; "turn clockwise 90" / "rotate left"
+                        </div>
+                    </div>
+
+                    <!-- Command Brain Input Block -->
+                    <div class="glass-card p-3 rounded-xl space-y-3 border border-white/5">
+                        <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block font-mono">Neural Traversal Command</label>
+
+                        <textarea id="command-input" placeholder="Try: 'Start walking forward', 'Run across the ridge', 'Jump over the boulder', 'Turn clockwise 90 degrees', 'Sidestep left', 'Fall down'..." class="w-full bg-[#090a10] border border-slate-700/60 text-xs p-2.5 rounded-lg h-20 resize-none text-slate-200 placeholder-slate-600 focus:outline-none focus:border-emerald-500/80 font-mono"></textarea>
+
+                        <!-- Audio Waveform Visualization Canvas -->
+                        <div class="relative w-full h-10 bg-[#06070a] border border-slate-800/80 rounded-lg overflow-hidden flex items-center justify-center">
+                            <canvas id="waveform-canvas" class="w-full h-full"></canvas>
+                            <div id="audio-placeholder-text" class="absolute inset-0 flex items-center justify-center text-[9px] text-slate-600 uppercase tracking-widest font-mono pointer-events-none">
+                                Waveform Stream Offline
+                            </div>
+                        </div>
+
+                        <!-- Execution Trigger Buttons -->
+                        <div class="flex space-x-2">
+                            <button id="voice-btn" class="flex-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold py-2 rounded-lg uppercase tracking-wider transition-all cursor-pointer font-mono select-none">
+                                Hold to Speak
+                            </button>
+                            <button id="execute-btn" class="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold text-xs px-4 py-2 rounded-lg uppercase tracking-wider transition-all cursor-pointer font-mono shadow-[0_0_15px_rgba(16,185,129,0.3)]">
+                                Execute Vector
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Diagnostic Console Log -->
+                <div class="glass-card p-3 rounded-xl text-xs space-y-1 mt-3 border border-white/5">
+                    <div class="text-slate-500 font-bold uppercase tracking-wider text-[9px] font-mono">Pipeline Diagnostics:</div>
+                    <div id="diagnostic-log" class="text-emerald-400/90 font-mono text-[10px] leading-tight max-h-[85px] overflow-y-auto">
+                        [SYSTEM]: Workspace initialized.<br>[WEBGL]: Readying Three.js allocation nodes.
+                    </div>
+                </div>
+            </section>
+
+            <!-- 3D WebGL Viewport Matrix (Right Panel) -->
+            <section class="flex-1 glass-panel rounded-2xl flex flex-col relative min-h-0 overflow-hidden border border-white/10">
+                <!-- HUD Overlay top label -->
+                <div class="absolute top-4 left-4 z-10 glass-card px-3 py-1.5 rounded-lg text-[10px] text-slate-300 font-mono tracking-wider uppercase flex items-center space-x-2">
+                    <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+                    <span>Primary Simulation Viewport</span>
+                </div>
+
+                <!-- Shimmer Telemetry overlay -->
+                <div id="shimmer-hud" class="hidden absolute top-14 left-4 z-10 bg-amber-500/10 border border-amber-500/40 text-amber-400 px-3 py-2 text-[11px] font-mono rounded-lg tracking-widest uppercase shimmer-flicker">
+                    CRITICAL WARNING: RECALCULATING TRAJECTORY VECTORS...
+                </div>
+
+                <!-- Obstacle Alert HUD -->
+                <div id="hazard-hud" class="hidden absolute top-14 left-4 z-10 bg-rose-500/20 border border-rose-500/60 text-rose-400 px-4 py-2 text-[11px] font-mono rounded-lg tracking-widest uppercase alert-pulse">
+                    HAZARD DETECTED — AWAITING INSTRUCTION
+                </div>
+
+                <!-- Bottom Telemetry HUD Overlay -->
+                <div class="absolute bottom-4 left-4 right-4 z-10 pointer-events-none flex flex-col md:flex-row justify-between items-end gap-3">
+                    <!-- Biomechanical Diagnostic Rationale Card -->
+                    <div id="rationale-card" class="glass-card p-3.5 text-[11px] font-mono text-slate-300 max-w-xl rounded-xl hidden border border-white/10 pointer-events-auto">
+                        <div class="text-emerald-400 font-bold uppercase mb-1 flex items-center space-x-2">
+                            <span>🧠</span>
+                            <span>Biomechanical Diagnostic Rationale</span>
+                        </div>
+                        <p id="telemetry-rationale" class="leading-relaxed text-slate-300 text-[10px]">Awaiting vector input sequence...</p>
+                    </div>
+
+                    <!-- Numerical Telemetry Readouts -->
+                    <div class="glass-card p-3.5 text-[10px] text-slate-400 tracking-wider font-mono rounded-xl space-y-1 min-w-[260px] border border-white/10 pointer-events-auto">
+                        <div class="text-emerald-400 font-bold border-b border-white/10 pb-1 mb-1">LIVE TELEMETRY READOUTS</div>
+                        <div class="flex justify-between"><span>ZMP Stability Index:</span> <span id="telemetry-zmp" class="text-emerald-400 font-bold">98.4%</span></div>
+                        <div class="flex justify-between"><span>Traversal Loop:</span> <span id="telemetry-state" class="text-slate-200">IDLE (STANDING)</span></div>
+                        <div class="flex justify-between"><span>Step Frequency:</span> <span id="telemetry-freq" class="text-slate-200">0.00 Hz</span></div>
+                        <div class="flex justify-between"><span>Torque Ankle/Knee:</span> <span id="telemetry-torque" class="text-slate-200">0.00 / 0.00 Nm</span></div>
+                    </div>
+                </div>
+
+                <!-- Three.js Canvas Container -->
+                <div id="webgl-canvas-container" class="w-full h-full bg-[#050508] cursor-grab active:cursor-grabbing"></div>
+            </section>
+        </main>
+    </div>
+
+
+    <!-- AUTHENTICATION MODAL (Login / Sign Up & Supabase / Google Integration) -->
+    <div id="auth-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md hidden transition-opacity duration-300">
+        <div class="glass-panel w-full max-w-md rounded-2xl p-6 border border-white/10 shadow-2xl space-y-5 relative">
+            <button onclick="closeAuthModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white text-lg font-mono">&times;</button>
+            
+            <div class="flex border-b border-white/10 pb-2">
+                <button id="tab-login-btn" onclick="switchAuthTab('login')" class="flex-1 py-2 text-xs font-bold uppercase tracking-wider text-emerald-400 border-b-2 border-emerald-400">
+                    Sign In
+                </button>
+                <button id="tab-signup-btn" onclick="switchAuthTab('signup')" class="flex-1 py-2 text-xs font-bold uppercase tracking-wider text-slate-400 hover:text-slate-200">
+                    Register Operator
+                </button>
+            </div>
+
+            <!-- Dynamic Prompt Banner (Shown when login account is missing or auth feedback occurs) -->
+            <div id="auth-prompt-box" class="hidden p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-mono space-y-2">
+                <div id="auth-prompt-text" class="leading-relaxed">Account not registered in Supabase. Please create an account to proceed.</div>
+                <button id="auth-prompt-action" onclick="switchAuthTab('signup')" class="hidden px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-[10px] font-bold uppercase tracking-wider rounded-lg border border-amber-500/40">
+                    Create Account Now &rarr;
+                </button>
+            </div>
+
+            <!-- Google OAuth Integration Button -->
+            <button type="button" onclick="handleGoogleSignIn()" class="w-full py-2.5 px-4 glass-card hover:bg-white/10 border border-white/15 rounded-xl text-xs font-semibold text-slate-200 flex items-center justify-center space-x-3 transition-all hover:border-emerald-500/50">
+                <svg class="w-4 h-4" viewBox="0 0 24 24">
+                    <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.6l3.1-3.1C17.3 1.7 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.2 9 5 12 5z"/>
+                    <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.8z"/>
+                    <path fill="#FBBC05" d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.3s.2-1.6.4-2.3L1.9 7.3C.7 9.7 0 12 0 12s.7 2.3 1.9 4.7l3.7-2.9z"/>
+                    <path fill="#34A853" d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.2-6.4-5.2L1.9 16c1.8 3.7 5.6 7 10.1 7z"/>
+                </svg>
+                <span>Continue with Google</span>
+            </button>
+
+            <div class="relative flex py-1 items-center">
+                <div class="flex-grow border-t border-slate-800"></div>
+                <span class="flex-shrink mx-3 text-[10px] font-mono text-slate-500 uppercase tracking-widest">Or Email Authentication</span>
+                <div class="flex-grow border-t border-slate-800"></div>
+            </div>
+
+            <!-- Email / Password Credentials Form -->
+            <form id="auth-form" onsubmit="handleAuthSubmit(event)" class="space-y-4">
+                <div id="username-field-container" class="space-y-1 hidden">
+                    <label class="text-[10px] font-mono text-slate-400 uppercase">Operator Alias / CallSign</label>
+                    <input type="text" id="auth-username" placeholder="e.g. Commander_Apex" class="w-full bg-[#090a10] border border-slate-700/60 rounded-lg p-2.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 font-mono">
+                </div>
+                <div class="space-y-1">
+                    <label class="text-[10px] font-mono text-slate-400 uppercase">Operator ID / Email</label>
+                    <input type="email" id="auth-email" required placeholder="operator@terrawalk.ai" class="w-full bg-[#090a10] border border-slate-700/60 rounded-lg p-2.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 font-mono">
+                </div>
+                <div class="space-y-1">
+                    <label class="text-[10px] font-mono text-slate-400 uppercase">Security Passcode</label>
+                    <input type="password" id="auth-password" required placeholder="••••••••••••" class="w-full bg-[#090a10] border border-slate-700/60 rounded-lg p-2.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 font-mono">
+                </div>
+                <button type="submit" id="auth-submit-btn" class="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs uppercase tracking-wider rounded-lg shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all">
+                    Authenticate Session
+                </button>
+            </form>
+        </div>
+    </div>
+
+
+    <!-- THEME CUSTOM ALERT MODAL -->
+    <div id="theme-toast-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md hidden transition-opacity duration-300">
+        <div class="glass-panel w-full max-w-sm rounded-2xl p-6 border border-white/10 shadow-2xl space-y-4 text-center relative">
+            <div id="toast-icon" class="w-12 h-12 rounded-full bg-emerald-500/20 border border-emerald-500/50 flex items-center justify-center text-emerald-400 font-bold text-xl mx-auto">
+                ✓
+            </div>
+            <h3 id="toast-title" class="text-sm font-bold text-white uppercase font-mono tracking-wider">System Notification</h3>
+            <p id="toast-message" class="text-xs text-slate-300 font-mono leading-relaxed">Operation processed successfully.</p>
+            <button onclick="closeThemeToast()" class="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs uppercase tracking-wider rounded-lg shadow-[0_0_15px_rgba(16,185,129,0.3)] transition-all">
+                Acknowledge
+            </button>
+        </div>
+    </div>
+
+
+    <!-- SYSTEM OVERLOAD / FALL RECOVERY MODAL -->
+    <div id="fall-overlay-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/90 backdrop-blur-md hidden transition-opacity duration-300">
+        <div class="glass-panel w-full max-w-md rounded-2xl p-6 border border-rose-500/40 shadow-2xl space-y-4 text-center relative alert-pulse">
+            <div class="w-14 h-14 rounded-full bg-rose-500/20 border border-rose-500/60 flex items-center justify-center text-rose-400 font-bold text-2xl mx-auto">
+                ⚠
+            </div>
+            <h3 class="text-base font-extrabold text-rose-400 uppercase font-mono tracking-widest">System Overload</h3>
+            <p class="text-xs text-slate-300 font-mono leading-relaxed">Maximum tilt angle exceeded. Balance stabilizers offline.</p>
+            <button id="reboot-btn" onclick="handleRebootRecovery()" class="w-full py-3 bg-rose-500 hover:bg-rose-400 text-slate-950 font-bold text-xs uppercase tracking-wider rounded-lg shadow-[0_0_20px_rgba(244,63,94,0.4)] transition-all">
+                Press [R] to Reboot
+            </button>
+        </div>
+    </div>
+
+
+    <!-- Client-Side Simulation, Auth System & Three.js JavaScript Engine -->
+    <script>
+        // Supabase Client State
+        let supabaseClient = null;
+        let currentUser = null;
+
+        function initSupabase() {
+            if (window.SUPABASE_URL && window.SUPABASE_ANON_KEY && typeof supabase !== 'undefined') {
+                try {
+                    supabaseClient = supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+                    console.log("[Supabase]: Client initialized.");
+
+                    // Check active session & auth state listener
+                    supabaseClient.auth.getSession().then(({ data: { session } }) => {
+                        if (session?.user) {
+                            currentUser = session.user;
+                            syncUserToSupabaseTable(currentUser);
+                        } else {
+                            currentUser = null;
+                        }
+                        updateAuthUI();
+                    });
+
+                    supabaseClient.auth.onAuthStateChange((event, session) => {
+                        if (session?.user) {
+                            currentUser = session.user;
+                            syncUserToSupabaseTable(currentUser);
+                        } else {
+                            currentUser = null;
+                        }
+                        updateAuthUI();
+                    });
+                } catch (e) {
+                    console.warn("[Supabase]: Client initialization warning:", e);
+                    updateAuthUI();
+                }
+            } else {
+                console.warn("[Supabase]: Config missing or library unavailable.");
+                updateAuthUI();
+            }
+        }
+
+        async function syncUserToSupabaseTable(user) {
+            if (!supabaseClient || !user) return;
+            try {
+                const userObj = {
+                    id: user.id,
+                    email: user.email,
+                    username: user.user_metadata?.username || user.email?.split('@')[0] || 'Operator',
+                    last_login: new Date().toISOString()
+                };
+                await supabaseClient.from('users').upsert(userObj, { onConflict: 'id' });
+            } catch (err) {
+                console.warn("[Supabase Table Sync]:", err);
+            }
+        }
+
+        function updateAuthUI() {
+            const signInNavBtn = document.getElementById('sign-in-nav-btn');
+            const heroCreateAccountBtn = document.getElementById('hero-create-account-btn');
+            const userBadge = document.getElementById('user-badge');
+            const signOutNavBtn = document.getElementById('sign-out-nav-btn');
+            const userDisplayName = document.getElementById('user-display-name');
+
+            if (currentUser) {
+                if (signInNavBtn) signInNavBtn.style.display = 'none';
+                if (heroCreateAccountBtn) heroCreateAccountBtn.style.display = 'none';
+                if (userBadge) userBadge.style.display = 'inline-flex';
+                if (signOutNavBtn) signOutNavBtn.style.display = 'inline-block';
+                if (userDisplayName) {
+                    const name = currentUser.user_metadata?.username || currentUser.email?.split('@')[0] || 'OPERATOR';
+                    userDisplayName.textContent = name.toUpperCase();
+                }
+            } else {
+                if (signInNavBtn) signInNavBtn.style.display = 'inline-block';
+                if (heroCreateAccountBtn) heroCreateAccountBtn.style.display = 'inline-block';
+                if (userBadge) userBadge.style.display = 'none';
+                if (signOutNavBtn) signOutNavBtn.style.display = 'none';
+            }
+        }
+
+        // View switching logic
+        function switchView(viewName) {
+            const landing = document.getElementById('landing-view');
+            const dashboard = document.getElementById('dashboard-view');
+            if (viewName === 'dashboard') {
+                landing.classList.add('hidden');
+                dashboard.classList.remove('hidden');
+                setTimeout(() => {
+                    if (renderer && camera) {
+                        const container = document.getElementById('webgl-canvas-container');
+                        camera.aspect = container.clientWidth / container.clientHeight;
+                        camera.updateProjectionMatrix();
+                        renderer.setSize(container.clientWidth, container.clientHeight);
+                    }
+                }, 50);
+            } else {
+                dashboard.classList.add('hidden');
+                landing.classList.remove('hidden');
+            }
+        }
+
+        // Auth Modal handlers
+        let currentAuthTab = 'login';
+        function openAuthModal(tab = 'login') {
+            document.getElementById('auth-modal').classList.remove('hidden');
+            hideAuthPrompt();
+            switchAuthTab(tab);
+        }
+        function closeAuthModal() {
+            document.getElementById('auth-modal').classList.add('hidden');
+            hideAuthPrompt();
+        }
+        function switchAuthTab(tab) {
+            currentAuthTab = tab;
+            hideAuthPrompt();
+            const loginBtn = document.getElementById('tab-login-btn');
+            const signupBtn = document.getElementById('tab-signup-btn');
+            const usernameContainer = document.getElementById('username-field-container');
+            const submitBtn = document.getElementById('auth-submit-btn');
+
+            if (tab === 'login') {
+                loginBtn.className = 'flex-1 py-2 text-xs font-bold uppercase tracking-wider text-emerald-400 border-b-2 border-emerald-400';
+                signupBtn.className = 'flex-1 py-2 text-xs font-bold uppercase tracking-wider text-slate-400 hover:text-slate-200';
+                usernameContainer.classList.add('hidden');
+                submitBtn.textContent = 'Authenticate Session';
+            } else {
+                signupBtn.className = 'flex-1 py-2 text-xs font-bold uppercase tracking-wider text-emerald-400 border-b-2 border-emerald-400';
+                loginBtn.className = 'flex-1 py-2 text-xs font-bold uppercase tracking-wider text-slate-400 hover:text-slate-200';
+                usernameContainer.classList.remove('hidden');
+                submitBtn.textContent = 'Register Operator';
+            }
+        }
+
+        function showAuthPrompt(message, showActionBtn = true) {
+            const box = document.getElementById('auth-prompt-box');
+            const txt = document.getElementById('auth-prompt-text');
+            const actionBtn = document.getElementById('auth-prompt-action');
+            txt.textContent = message;
+            box.classList.remove('hidden');
+            if (showActionBtn) actionBtn.classList.remove('hidden');
+            else actionBtn.classList.add('hidden');
+        }
+
+        function hideAuthPrompt() {
+            document.getElementById('auth-prompt-box').classList.add('hidden');
+        }
+
+        function showThemeToast(title, message, isError = false) {
+            const toastModal = document.getElementById('theme-toast-modal');
+            const toastTitle = document.getElementById('toast-title');
+            const toastMessage = document.getElementById('toast-message');
+            const toastIcon = document.getElementById('toast-icon');
+
+            toastTitle.textContent = title;
+            toastMessage.textContent = message;
+
+            if (isError) {
+                toastIcon.className = 'w-12 h-12 rounded-full bg-rose-500/20 border border-rose-500/50 flex items-center justify-center text-rose-400 font-bold text-xl mx-auto';
+                toastIcon.textContent = '✕';
+            } else {
+                toastIcon.className = 'w-12 h-12 rounded-full bg-emerald-500/20 border border-emerald-500/50 flex items-center justify-center text-emerald-400 font-bold text-xl mx-auto';
+                toastIcon.textContent = '✓';
+            }
+
+            toastModal.classList.remove('hidden');
+        }
+
+        function closeThemeToast() {
+            document.getElementById('theme-toast-modal').classList.add('hidden');
+        }
+
+        async function handleGoogleSignIn() {
+            if (!supabaseClient) {
+                showThemeToast('Configuration Missing', 'Supabase credentials are required in .env for Google OAuth.', true);
+                return;
+            }
+            try {
+                const { error } = await supabaseClient.auth.signInWithOAuth({
+                    provider: 'google',
+                    options: {
+                        redirectTo: window.location.origin
+                    }
+                });
+                if (error) throw error;
+            } catch (err) {
+                showThemeToast('OAuth Error', err.message || 'Failed to initialize Google Sign-In.', true);
+            }
+        }
+
+        async function handleAuthSubmit(e) {
+            e.preventDefault();
+            const email = document.getElementById('auth-email').value.trim();
+            const password = document.getElementById('auth-password').value.trim();
+            const username = document.getElementById('auth-username').value.trim();
+
+            if (!email || !password) return;
+
+            if (!supabaseClient) {
+                // Local Fallback mode when Supabase credentials aren't supplied in .env
+                currentUser = { id: 'demo-id', email, user_metadata: { username: username || email.split('@')[0] } };
+                updateAuthUI();
+                closeAuthModal();
+                showThemeToast('Operator Authenticated', 'Local session initiated. Launching simulation...');
+                switchView('dashboard');
+                return;
+            }
+
+            if (currentAuthTab === 'login') {
+                try {
+                    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+                    
+                    if (error) {
+                        // User not found in Supabase or credentials invalid -> Prompt to make an account
+                        showAuthPrompt('Operator account record not found in Supabase table. Please register an account.', true);
+                        return;
+                    }
+
+                    if (data?.user) {
+                        currentUser = data.user;
+                        await syncUserToSupabaseTable(currentUser);
+                        updateAuthUI();
+                        closeAuthModal();
+                        showThemeToast('Access Granted', 'Session verified in Supabase matrix. Launching simulation...');
+                        switchView('dashboard');
+                    }
+                } catch (err) {
+                    showAuthPrompt('Account not found or invalid credentials. Please create an account.', true);
+                }
+            } else {
+                // SIGNUP TAB
+                try {
+                    const { data, error } = await supabaseClient.auth.signUp({
+                        email,
+                        password,
+                        options: {
+                            data: { username: username || email.split('@')[0] }
+                        }
+                    });
+
+                    if (error) {
+                        showThemeToast('Registration Failed', error.message, true);
+                        return;
+                    }
+
+                    if (data?.user) {
+                        currentUser = data.user;
+                        await syncUserToSupabaseTable(currentUser);
+                        updateAuthUI();
+                        closeAuthModal();
+                        showThemeToast('Registration Complete', 'Operator account created in Supabase! Accessing simulation...');
+                        switchView('dashboard');
+                    }
+                } catch (err) {
+                    showThemeToast('Error', err.message || 'Failed to create operator account.', true);
+                }
+            }
+        }
+
+        async function handleSignOut() {
+            if (supabaseClient) {
+                await supabaseClient.auth.signOut();
+            }
+            currentUser = null;
+            updateAuthUI();
+            showThemeToast('Session Terminated', 'Operator signed out successfully.');
+        }
+
+        // Global variables mapping system configurations
+        let scene, camera, renderer, terrainMesh, humanoidGroup, startMarker;
+        let pelvisGroup, torsoGroup, headGroup;
+        let leftHip, leftKnee, rightHip, rightKnee;
+        let leftShoulder, rightShoulder;
+        let clock = new THREE.Clock();
+
+        // Locomotion state machine
+        let movementState = 'idle';
+        let movementVelocity = 0.0;
+        let targetVelocity = 0.0;
+
+        let robotPos = { x: 0, z: 0 };
+        let currentHeading = 0, targetHeading = 0;
+        const SPEED_SCALE = 1.2;
+
+        let currentHipAngle = 0, targetHipAngle = 0;
+        let currentKneeAngle = 0, targetKneeAngle = 0;
+        let currentCOMYOffset = 0.0, targetCOMYOffset = 0.0;
+        let globalStepFrequency = 0.0;
+        let targetStepFrequency = 0.0;
+
+        let currentPelvicQuaternion = new THREE.Quaternion(0, 0, 0, 1);
+        let targetPelvicQuaternion = new THREE.Quaternion(0, 0, 0, 1);
+
+        let currentCaptureX = 0.0, targetCaptureX = 0.0;
+        let currentCaptureZ = 0.0, targetCaptureZ = 0.0;
+        let captureIndicator;
+
+        let isJumping = false, jumpStartTime = -999;
+        const JUMP_DURATION = 0.6, JUMP_HEIGHT = 0.85, JUMP_FORWARD_SPEED = 2.4;
+
+        let isClimbing = false, climbStartTime = -999;
+        const CLIMB_DURATION = 1.3, CLIMB_HEIGHT = 0.5, CLIMB_FORWARD_SPEED = 1.5;
+
+        let sidestepTimer = 0, sidestepSign = 0;
+        const SIDESTEP_SPEED = 2.0;
+
+        let stumbleTimer = 0;
+        let currentBiome = 'flat';
+        let noiseSeedX = 0, noiseSeedZ = 0;
+        let currentGroundAngleRad = 0;
+
+        // --- Linear Inverted Pendulum (LIP) Locomotion Model ---
+        // All forward-walking speed is derived from / bounded by these physical parameters instead
+        // of trusting the Kinematic Brain's raw "velocity" number directly. This is what keeps the
+        // robot's pace stabilized and prevents it from snapping to an unrealistic speed.
+        const GRAVITY = 9.81;
+        const PENDULUM_HEIGHT = 0.92; // approx. COM height above ground for this rig's leg length
+        const LIP_OMEGA = Math.sqrt(GRAVITY / PENDULUM_HEIGHT); // natural angular frequency of the pendulum
+        const MAX_STEP_LENGTH = 0.85; // meters - furthest kinematically reachable stride for this leg length
+        const MAX_STEP_FREQUENCY = 3.0; // Hz - upper bound on stride cadence
+        const MIN_STEP_FREQUENCY = 0.4; // Hz
+        const MAX_LIP_SPEED = MAX_STEP_LENGTH * MAX_STEP_FREQUENCY; // hard physical ceiling (stride x cadence)
+        const MAX_WALK_SPEED = 1.6; // comfortable walking ceiling, below the hard run cap
+        const MAX_LIP_ACCEL = LIP_OMEGA * LIP_OMEGA * MAX_STEP_LENGTH; // max restoring accel the pendulum can produce
+
+        function sanitizeLipVelocity(rawVelocity, state) {
+            if (typeof rawVelocity !== 'number' || !isFinite(rawVelocity)) return 0;
+            const ceiling = state === 'run' ? MAX_LIP_SPEED : MAX_WALK_SPEED;
+            return THREE.MathUtils.clamp(rawVelocity, 0, ceiling);
+        }
+        function sanitizeStepFrequency(rawFreq) {
+            if (typeof rawFreq !== 'number' || !isFinite(rawFreq)) return MIN_STEP_FREQUENCY;
+            return THREE.MathUtils.clamp(rawFreq, MIN_STEP_FREQUENCY, MAX_STEP_FREQUENCY);
+        }
+
+        // --- Fall / Recovery State Machine ---
+        let isFallen = false, fallStartTime = -999;
+        let isRecovering = false, recoveryStartTime = -999;
+        let fallTiltAxis = 'z', fallSign = 1;
+        const MAX_RECOVERABLE_TILT = THREE.MathUtils.degToRad(20); // beyond this, stabilizers can't compensate
+        const FALL_TARGET_ANGLE = THREE.MathUtils.degToRad(84); // resting tilt once fully collapsed
+        const FALL_ANIM_DURATION = 0.8;
+        const RECOVERY_ANIM_DURATION = 1.4;
+        let pendingFallOverlayTimeout = null; // holds the collapse animation before the reboot prompt appears
+        let sfxAudioCtx = null; // dedicated Web Audio context for synthesized UI sound effects
+
+        let obstacles = [];
+        let activeObstacle = null;
+        const DETECTION_RANGE = 3.2;
+        const LANE_WIDTH = 1.6;
+        const CLEAR_PASS_RANGE = -1.5;
+        const OBSTACLE_TYPES = ['boulder', 'crevice', 'ice_patch', 'debris'];
+        const OBSTACLE_CLEAR_ACTIONS = {
+            boulder: ['jump', 'climb'],
+            crevice: ['jump'],
+            ice_patch: ['crouch', 'sidestep_left', 'sidestep_right'],
+            debris: ['climb', 'sidestep_left', 'sidestep_right']
+        };
+        const BIOME_OBSTACLE_WEIGHTS = {
+            flat: ['debris', 'boulder'],
+            ice: ['ice_patch', 'crevice'],
+            rubble: ['boulder', 'debris'],
+            mud: ['debris', 'ice_patch'],
+            volcanic: ['crevice', 'boulder'],
+            snow: ['ice_patch', 'debris'],
+            collapsing: ['crevice', 'boulder']
+        };
+
+        let audioCtx, analyser, dataArray, sourceNode, animationFrameId;
+        let recognition;
+        let isRecording = false;
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            initSupabase();
+            updateAuthUI();
+            initSystemHandshake();
+            initThreeJS();
+            setupInterfaceListeners();
+            setupVoiceProcessingEngine();
+            animateSimulationLoop();
+        });
+
+        async function initSystemHandshake() {
+            const badge = document.getElementById('connection-badge');
+            const log = document.getElementById('diagnostic-log');
+            try {
+                const response = await fetch('/api/health');
+                const data = await response.json();
+                if (data.status === 'online') {
+                    badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span><span>SYSTEM ACTIVE</span>`;
+                    badge.className = 'px-3 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-full text-[10px] font-mono tracking-wider flex items-center space-x-2';
+                    log.innerHTML += `<br>[OK]: Serverless API operational.`;
+                    log.innerHTML += `<br>[AUTH]: Groq API status: ${data.groq_auth_established ? 'CONNECTED' : 'MISSING KEY'}`;
+                    log.innerHTML += `<br>[SUPABASE]: Matrix database status: ${data.supabase_configured ? 'CONNECTED' : 'LOCAL ENV'}`;
+                }
+            } catch (error) {
+                badge.textContent = 'PIPELINE BREAK';
+                badge.className = 'px-3 py-1 bg-rose-500/20 text-rose-400 border border-rose-500/40 rounded-full text-[10px] font-mono tracking-wider';
+                log.innerHTML += `<br>[ERR]: Backend connection failed.`;
+            }
+        }
+
+        function initThreeJS() {
+            const container = document.getElementById('webgl-canvas-container');
+            const log = document.getElementById('diagnostic-log');
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x050508);
+            scene.fog = new THREE.FogExp2(0x050508, 0.028);
+
+            camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
+            camera.position.set(0, 4, 10);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            container.appendChild(renderer.domElement);
+
+            const ambientLight = new THREE.AmbientLight(0x30313f, 0.9);
+            scene.add(ambientLight);
+
+            const hemiLight = new THREE.HemisphereLight(0x8fa8c8, 0x050508, 0.6);
+            scene.add(hemiLight);
+
+            const directionalLight = new THREE.DirectionalLight(0x10b981, 1.0);
+            directionalLight.position.set(5, 10, 5);
+            scene.add(directionalLight);
+
+            generateProceduralTerrain('flat');
+            buildStartMarker();
+            buildHumanoidMatrix();
+            buildCaptureIndicator();
+            spawnObstacleField('flat');
+
+            log.innerHTML += `<br>[WebGL]: Simulation viewport ready.`;
+
+            window.addEventListener('resize', () => {
+                if (!document.getElementById('dashboard-view').classList.contains('hidden')) {
+                    camera.aspect = container.clientWidth / container.clientHeight;
+                    camera.updateProjectionMatrix();
+                    renderer.setSize(container.clientWidth, container.clientHeight);
+                }
+            });
+        }
+
+        function generateProceduralTerrain(type) {
+            if (terrainMesh) scene.remove(terrainMesh);
+            currentBiome = type;
+
+            const size = 60;
+            const segments = 60;
+            const geometry = new THREE.PlaneGeometry(size, size, segments, segments);
+            const position = geometry.attributes.position;
+
+            for (let i = 0; i < position.count; i++) {
+                const x = position.getX(i);
+                const y = position.getY(i);
+                let z = calculateGroundMathHeight(x, y, type);
+                position.setZ(i, z);
+            }
+
+            geometry.computeVertexNormals();
+
+            const material = new THREE.MeshStandardMaterial({
+                color: biomeColor(type),
+                wireframe: true,
+                transparent: true,
+                opacity: 0.6
+            });
+
+            terrainMesh = new THREE.Mesh(geometry, material);
+            terrainMesh.rotation.x = -Math.PI / 2;
+            scene.add(terrainMesh);
+        }
+
+        function biomeColor(type) {
+            switch (type) {
+                case 'ice': return 0x38bdf8;
+                case 'rubble': return 0x64748b;
+                case 'mud': return 0x78350f;
+                case 'volcanic': return 0xdc2626;
+                case 'snow': return 0xe2e8f0;
+                case 'collapsing': return 0x7c3aed;
+                default: return 0x1f1f2e;
+            }
+        }
+
+        function calculateGroundMathHeight(globalX, globalZ, type) {
+            let localX = globalX + noiseSeedX;
+            let localY = -globalZ + noiseSeedZ;
+
+            let base = 0.0;
+            if (type === 'ice') base = Math.sin(localX * 0.4) * Math.cos(localY * 0.4) * 0.4;
+            else if (type === 'rubble') base = (Math.sin(localX * 1.5) * Math.cos(localY * 1.5) * 0.3) + (Math.sin(localX * 3.0) * 0.15);
+            else if (type === 'mud') base = Math.sin(localX * 0.3) * Math.cos(localY * 0.5) * 0.25 - 0.2;
+            else if (type === 'volcanic') base = (Math.sin(localX * 2.0) * Math.cos(localY * 2.0) * 0.5) + (Math.sin(localX * 0.5) * 0.4);
+            else if (type === 'snow') base = Math.sin(localX * 0.25) * Math.cos(localY * 0.25) * 0.2;
+            else if (type === 'collapsing') base = (Math.sin(localX * 1.2) * Math.cos(localY * 0.8) * 0.35) - Math.abs(Math.sin(localX * 0.4) * 0.3);
+
+            // FIX: the Matrix Ground Angle slider used to spin the terrain mesh around its
+            // vertical (Y) axis, which is a no-op for a height field and never actually tilted the
+            // ground. Bake it in as a real lateral incline (anchored to world X so it doesn't shift
+            // when the biome noise reseeds), so posture, foot placement, and the fall check all see
+            // the same slope.
+            const incline = Math.tan(currentGroundAngleRad) * globalX;
+            return base + incline;
+        }
+
+        function refreshGroundDependentPositions() {
+            if (startMarker) {
+                startMarker.position.y = calculateGroundMathHeight(0, 0, currentBiome) + 0.02;
+            }
+            obstacles.forEach(o => {
+                const groundY = calculateGroundMathHeight(o.x, o.z, currentBiome);
+                o.mesh.position.y = groundY + (o.mesh.userData.heightOffset || 0);
+            });
+        }
+
+        function buildStartMarker() {
+            if (startMarker) scene.remove(startMarker);
+            const ringGeo = new THREE.RingGeometry(0.7, 0.9, 32);
+            const ringMat = new THREE.MeshBasicMaterial({ color: 0x10b981, side: THREE.DoubleSide, transparent: true, opacity: 0.7 });
+            startMarker = new THREE.Mesh(ringGeo, ringMat);
+            startMarker.rotation.x = -Math.PI / 2;
+            startMarker.position.set(0, calculateGroundMathHeight(0, 0, currentBiome) + 0.02, 0);
+            scene.add(startMarker);
+        }
+
+        function buildHumanoidMatrix() {
+            humanoidGroup = new THREE.Group();
+            // Yaw must compose before pitch/roll so terrain-slope lean (added in the render loop)
+            // stays relative to the direction the robot is currently facing, not world space.
+            humanoidGroup.rotation.order = 'YXZ';
+
+            const bodyMat = new THREE.MeshStandardMaterial({ color: 0xaab2bd, metalness: 0.75, roughness: 0.32 });
+            const darkMat = new THREE.MeshStandardMaterial({ color: 0x252b36, metalness: 0.6, roughness: 0.45 });
+            const jointMat = new THREE.MeshStandardMaterial({ color: 0x2dd4bf, metalness: 0.3, roughness: 0.4, emissive: 0x0f766e, emissiveIntensity: 0.7 });
+            const visorMat = new THREE.MeshStandardMaterial({ color: 0x22d3ee, emissive: 0x22d3ee, emissiveIntensity: 1.4, metalness: 0.1, roughness: 0.1 });
+
+            pelvisGroup = new THREE.Group();
+            pelvisGroup.position.y = 1.02;
+            pelvisGroup.rotation.y = Math.PI;
+            humanoidGroup.add(pelvisGroup);
+            pelvisGroup.add(new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.2, 0.28), bodyMat));
+
+            torsoGroup = new THREE.Group();
+            torsoGroup.position.y = 0.12;
+            pelvisGroup.add(torsoGroup);
+
+            const torsoMesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.55, 0.3), bodyMat);
+            torsoMesh.position.y = 0.27;
+            torsoGroup.add(torsoMesh);
+
+            const chestAccent = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.1, 0.05), jointMat);
+            chestAccent.position.set(0, 0.35, 0.16);
+            torsoGroup.add(chestAccent);
+
+            headGroup = new THREE.Group();
+            headGroup.position.y = 0.58;
+            torsoGroup.add(headGroup);
+
+            headGroup.add(new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.26, 0.26), bodyMat));
+            const visorMesh = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.07, 0.03), visorMat);
+            visorMesh.position.set(0, 0.02, 0.14);
+            headGroup.add(visorMesh);
+
+            const headSpotlight = new THREE.SpotLight(0xbfe9ff, 3.0, 20, 0.34, 0.5, 1.4);
+            headSpotlight.position.set(0, 0, -0.1);
+            headGroup.add(headSpotlight);
+            const headLightTarget = new THREE.Object3D();
+            headLightTarget.position.set(0, -1.4, -7);
+            headGroup.add(headLightTarget);
+            headSpotlight.target = headLightTarget;
+
+            function buildArm(sideSign) {
+                const shoulder = new THREE.Group();
+                shoulder.position.set(sideSign * 0.32, 0.42, 0);
+                torsoGroup.add(shoulder);
+                shoulder.add(new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 10), jointMat));
+
+                const upperArm = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.36), bodyMat);
+                upperArm.position.y = -0.18;
+                shoulder.add(upperArm);
+
+                const elbow = new THREE.Group();
+                elbow.position.y = -0.36;
+                shoulder.add(elbow);
+                elbow.add(new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 10), jointMat));
+
+                const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.04, 0.32), darkMat);
+                forearm.position.y = -0.16;
+                elbow.add(forearm);
+
+                return shoulder;
+            }
+            leftShoulder = buildArm(-1);
+            rightShoulder = buildArm(1);
+
+            function buildLeg(sideSign) {
+                const hip = new THREE.Group();
+                hip.position.set(sideSign * 0.17, 0, 0);
+                pelvisGroup.add(hip);
+                hip.add(new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 10), jointMat));
+
+                const thigh = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.065, 0.46), bodyMat);
+                thigh.position.y = -0.23;
+                hip.add(thigh);
+
+                const knee = new THREE.Group();
+                knee.position.y = -0.46;
+                hip.add(knee);
+                knee.add(new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 10), jointMat));
+
+                const shin = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.05, 0.44), darkMat);
+                shin.position.y = -0.22;
+                knee.add(shin);
+
+                const foot = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.08, 0.3), bodyMat);
+                foot.position.set(0, -0.46, 0.06);
+                knee.add(foot);
+
+                return { hip, knee };
+            }
+            const left = buildLeg(-1);
+            const right = buildLeg(1);
+            leftHip = left.hip; leftKnee = left.knee;
+            rightHip = right.hip; rightKnee = right.knee;
+
+            scene.add(humanoidGroup);
+        }
+
+        function buildCaptureIndicator() {
+            if (captureIndicator) scene.remove(captureIndicator);
+            const geo = new THREE.SphereGeometry(0.09, 16, 16);
+            const mat = new THREE.MeshStandardMaterial({
+                color: 0xff2d2d,
+                emissive: 0xff1111,
+                emissiveIntensity: 1.2,
+                metalness: 0.2,
+                roughness: 0.3
+            });
+            captureIndicator = new THREE.Mesh(geo, mat);
+            captureIndicator.position.set(0, calculateGroundMathHeight(0, 0, currentBiome) + 0.06, 0);
+            scene.add(captureIndicator);
+        }
+
+        function createObstacleMesh(type) {
+            let group = new THREE.Group();
+            if (type === 'boulder') {
+                const geo = new THREE.IcosahedronGeometry(0.55, 0);
+                const mat = new THREE.MeshStandardMaterial({ color: 0x64748b, wireframe: true, emissive: 0x334155, emissiveIntensity: 0.5 });
+                group.add(new THREE.Mesh(geo, mat));
+                group.userData.heightOffset = 0.55;
+            } else if (type === 'crevice') {
+                const geo = new THREE.BoxGeometry(1.8, 0.08, 0.9);
+                const mat = new THREE.MeshStandardMaterial({ color: 0xef4444, wireframe: true, emissive: 0x7f1d1d, emissiveIntensity: 0.7, transparent: true, opacity: 0.75 });
+                group.add(new THREE.Mesh(geo, mat));
+                group.userData.heightOffset = 0.04;
+            } else if (type === 'ice_patch') {
+                const geo = new THREE.CylinderGeometry(0.9, 0.9, 0.05, 20);
+                const mat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, wireframe: true, emissive: 0x0ea5e9, emissiveIntensity: 0.6, transparent: true, opacity: 0.55 });
+                group.add(new THREE.Mesh(geo, mat));
+                group.userData.heightOffset = 0.03;
+            } else if (type === 'debris') {
+                const mat = new THREE.MeshStandardMaterial({ color: 0x92400e, wireframe: true, emissive: 0x78350f, emissiveIntensity: 0.5 });
+                for (let i = 0; i < 4; i++) {
+                    const size = 0.2 + Math.random() * 0.25;
+                    const geo = new THREE.BoxGeometry(size, size, size);
+                    const cube = new THREE.Mesh(geo, mat);
+                    cube.position.set((Math.random() - 0.5) * 1.2, size / 2, (Math.random() - 0.5) * 1.2);
+                    group.add(cube);
+                }
+                group.userData.heightOffset = 0.0;
+            }
+            return group;
+        }
+
+        function spawnObstacleField(biome) {
+            obstacles.forEach(o => scene.remove(o.mesh));
+            obstacles = [];
+            activeObstacle = null;
+            document.getElementById('hazard-hud').classList.add('hidden');
+
+            const weightedTypes = BIOME_OBSTACLE_WEIGHTS[biome] || OBSTACLE_TYPES;
+            const count = 3 + Math.floor(Math.random() * 3);
+            const spacing = 20 / count;
+
+            for (let i = 0; i < count; i++) {
+                const type = weightedTypes[Math.floor(Math.random() * weightedTypes.length)];
+                const z = -6 - (i * spacing) - Math.random() * 2;
+                const x = (Math.random() - 0.5) * 2.4;
+                const mesh = createObstacleMesh(type);
+                const groundY = calculateGroundMathHeight(x, z, biome);
+                mesh.position.set(x, groundY + mesh.userData.heightOffset, z);
+                scene.add(mesh);
+                obstacles.push({ mesh, type, x, z, cleared: false });
+            }
+
+            updateObstacleHud();
+        }
+
+        function relativeLocal(o) {
+            const dx = o.x - robotPos.x;
+            const dz = o.z - robotPos.z;
+            const s = Math.sin(currentHeading), c = Math.cos(currentHeading);
+            const forwardDist = dx * s - dz * c;
+            const lateralDist = dx * c + dz * s;
+            return { forwardDist, lateralDist };
+        }
+
+        function updateObstacleHud() {
+            const clearedCount = obstacles.filter(o => o.cleared).length;
+            document.getElementById('obstacle-count').textContent = `${clearedCount} / ${obstacles.length}`;
+            const line = document.getElementById('active-hazard-line');
+            if (activeObstacle && !activeObstacle.cleared) {
+                const { forwardDist } = relativeLocal(activeObstacle);
+                line.innerHTML = `<span class="text-rose-400 font-bold uppercase">${activeObstacle.type.replace('_', ' ')}</span> ahead — ${Math.max(0, forwardDist).toFixed(1)}m`;
+            } else {
+                line.textContent = 'No active hazard. Path is clear.';
+            }
+        }
+
+        function markObstacleCleared(obstacle) {
+            obstacle.cleared = true;
+            obstacle.clearAnimStart = clock.getElapsedTime();
+            obstacle.mesh.traverse(child => {
+                if (child.material) {
+                    child.material.color.set(0x10b981);
+                    if (child.material.emissive) child.material.emissive.set(0x047857);
+                }
+            });
+        }
+
+        function updateObstacleVisuals(elapsedTime) {
+            obstacles.forEach(o => {
+                if (o.cleared && o.clearAnimStart !== undefined && o.mesh.visible) {
+                    const t = (elapsedTime - o.clearAnimStart) / 0.9;
+                    if (t >= 1) {
+                        o.mesh.visible = false;
+                    } else {
+                        o.mesh.scale.setScalar(Math.max(0.001, 1 - t));
+                    }
+                }
+            });
+        }
+
+        function triggerStumble() {
+            stumbleTimer = 0.5;
+        }
+
+        function triggerFall(pitchAmt, rollAmt) {
+            if (isFallen || isRecovering) return;
+            isFallen = true;
+            fallStartTime = clock.getElapsedTime();
+            fallTiltAxis = Math.abs(pitchAmt) >= Math.abs(rollAmt) ? 'x' : 'z';
+            const dominant = fallTiltAxis === 'x' ? pitchAmt : rollAmt;
+            fallSign = dominant >= 0 ? 1 : -1;
+
+            movementState = 'idle';
+            targetVelocity = 0; movementVelocity = 0;
+            isJumping = false; isClimbing = false; sidestepTimer = 0; stumbleTimer = 0;
+
+            document.getElementById('telemetry-state').textContent = 'FALLEN (SYSTEM OVERLOAD)';
+            document.getElementById('diagnostic-log').innerHTML += `<br>[CRITICAL]: Maximum tilt angle exceeded. Balance stabilizers offline.`;
+
+            // Let the collapse animation actually play out (FALL_ANIM_DURATION) before surfacing
+            // the reboot prompt, instead of freezing the viewport with the modal the instant the
+            // fall begins. A "system loss" tone plays right as the overlay appears.
+            if (pendingFallOverlayTimeout) {
+                clearTimeout(pendingFallOverlayTimeout);
+            }
+            pendingFallOverlayTimeout = setTimeout(() => {
+                pendingFallOverlayTimeout = null;
+                if (!isFallen) return; // reboot may already have been triggered mid-animation
+                playSystemOverloadSound();
+                showFallOverlay();
+            }, FALL_ANIM_DURATION * 1000);
+        }
+
+        function showFallOverlay() {
+            document.getElementById('fall-overlay-modal').classList.remove('hidden');
+        }
+
+        function hideFallOverlay() {
+            document.getElementById('fall-overlay-modal').classList.add('hidden');
+        }
+
+        function getSfxAudioContext() {
+            if (!sfxAudioCtx) {
+                sfxAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            return sfxAudioCtx;
+        }
+
+        function playSystemOverloadSound() {
+            // Synthesizes a descending "power-down" failure tone via the Web Audio API (no
+            // external audio asset required) to accompany the System Overload screen.
+            try {
+                const ctx = getSfxAudioContext();
+                if (ctx.state === 'suspended') ctx.resume();
+                const now = ctx.currentTime;
+
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(320, now);
+                osc.frequency.exponentialRampToValueAtTime(60, now + 0.9);
+                gain.gain.setValueAtTime(0.0001, now);
+                gain.gain.exponentialRampToValueAtTime(0.28, now + 0.05);
+                gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.95);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start(now);
+                osc.stop(now + 1.0);
+
+                // A lower, detuned layer underneath for a heavier "system crash" weight.
+                const osc2 = ctx.createOscillator();
+                const gain2 = ctx.createGain();
+                osc2.type = 'square';
+                osc2.frequency.setValueAtTime(110, now);
+                osc2.frequency.exponentialRampToValueAtTime(35, now + 1.0);
+                gain2.gain.setValueAtTime(0.0001, now);
+                gain2.gain.exponentialRampToValueAtTime(0.16, now + 0.05);
+                gain2.gain.exponentialRampToValueAtTime(0.0001, now + 1.05);
+                osc2.connect(gain2);
+                gain2.connect(ctx.destination);
+                osc2.start(now);
+                osc2.stop(now + 1.1);
+            } catch (e) {
+                console.warn('[Audio]: System overload sound effect failed to play.', e);
+            }
+        }
+
+        function handleRebootRecovery() {
+            if (!isFallen) return;
+            if (pendingFallOverlayTimeout) {
+                clearTimeout(pendingFallOverlayTimeout);
+                pendingFallOverlayTimeout = null;
+            }
+            isFallen = false;
+            isRecovering = true;
+            recoveryStartTime = clock.getElapsedTime();
+            hideFallOverlay();
+
+            // FIX: reset the tilt back to flat here -- otherwise the very next tilt check in the
+            // animation loop sees the same out-of-bounds slope that caused the fall and immediately
+            // re-triggers triggerFall(), producing an infinite fall/reboot loop.
+            const angleSlider = document.getElementById('angle-slider');
+            const angleVal = document.getElementById('angle-val');
+            const terrainSelector = document.getElementById('terrain-selector');
+            angleSlider.value = 0;
+            angleVal.textContent = '0°';
+            currentGroundAngleRad = 0;
+            generateProceduralTerrain(terrainSelector.value);
+            refreshGroundDependentPositions();
+
+            // Ground is flat again, so there's no slope left to lean into and no reason for the
+            // torso to still be pitched/rolled from whatever command was active before the fall.
+            targetPelvicQuaternion.set(0, 0, 0, 1);
+            targetCaptureX = 0;
+            targetCaptureZ = 0;
+
+            document.getElementById('telemetry-state').textContent = 'REBOOTING (RECOVERY)';
+            document.getElementById('diagnostic-log').innerHTML += `<br>[REBOOT]: Balance stabilizers back online. Standing up...<br>[REBOOT]: Matrix Ground Angle reset to 0° (flat).`;
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if ((e.key === 'r' || e.key === 'R') && isFallen) {
+                handleRebootRecovery();
+            }
+        });
+
+        function setupInterfaceListeners() {
+            const selector = document.getElementById('terrain-selector');
+            const frictionSlider = document.getElementById('friction-slider');
+            const frictionVal = document.getElementById('friction-val');
+            const angleSlider = document.getElementById('angle-slider');
+            const angleVal = document.getElementById('angle-val');
+            const executeBtn = document.getElementById('execute-btn');
+            const generateBtn = document.getElementById('generate-terrain-btn');
+            const resetBtn = document.getElementById('reset-btn');
+            const log = document.getElementById('diagnostic-log');
+
+            selector.addEventListener('change', (e) => {
+                regenerateWorld(e.target.value);
+                log.innerHTML += `<br>[MODIFIED]: Biome set to '${e.target.value.toUpperCase()}'.`;
+            });
+
+            generateBtn.addEventListener('click', () => {
+                const biomes = Object.keys(BIOME_OBSTACLE_WEIGHTS);
+                const randomBiome = biomes[Math.floor(Math.random() * biomes.length)];
+                selector.value = randomBiome;
+
+                const randomFriction = (0.05 + Math.random() * 0.95).toFixed(2);
+                frictionSlider.value = randomFriction;
+                frictionVal.textContent = randomFriction;
+
+                const randomAngle = Math.floor((Math.random() - 0.5) * 50);
+                angleSlider.value = randomAngle;
+                angleVal.textContent = `${randomAngle}°`;
+                currentGroundAngleRad = THREE.MathUtils.degToRad(randomAngle);
+
+                regenerateWorld(randomBiome);
+
+                log.innerHTML += `<br>[GENERATE]: World regenerated -> '${randomBiome.toUpperCase()}'.`;
+            });
+
+            resetBtn.addEventListener('click', () => {
+                robotPos = { x: 0, z: 0 };
+                currentHeading = 0; targetHeading = 0;
+                movementState = 'idle';
+                movementVelocity = 0.0;
+                targetVelocity = 0.0;
+                isJumping = false; isClimbing = false; sidestepTimer = 0; stumbleTimer = 0;
+                isFallen = false; isRecovering = false;
+                if (pendingFallOverlayTimeout) { clearTimeout(pendingFallOverlayTimeout); pendingFallOverlayTimeout = null; }
+                hideFallOverlay();
+                spawnObstacleField(currentBiome);
+                document.getElementById('telemetry-state').textContent = 'IDLE (STANDING)';
+                log.innerHTML += `<br>[RESET]: Robot returned to START marker.`;
+            });
+
+            frictionSlider.addEventListener('input', (e) => {
+                const val = parseFloat(e.target.value).toFixed(2);
+                frictionVal.textContent = val;
+            });
+
+            angleSlider.addEventListener('input', (e) => {
+                const degrees = parseFloat(e.target.value);
+                angleVal.textContent = `${degrees}°`;
+                // FIX: previously rotated the terrain mesh around its vertical (Y) axis, which is a
+                // no-op for a height field and never actually tilted the ground. Bake the angle into
+                // the height function instead and rebuild the mesh + dependent object heights.
+                currentGroundAngleRad = THREE.MathUtils.degToRad(degrees);
+                generateProceduralTerrain(selector.value);
+                refreshGroundDependentPositions();
+            });
+
+            executeBtn.addEventListener('click', executeNeuralCommandPipeline);
+        }
+
+        function regenerateWorld(biome) {
+            noiseSeedX = Math.random() * 1000;
+            noiseSeedZ = Math.random() * 1000;
+            robotPos = { x: 0, z: 0 };
+            currentHeading = 0; targetHeading = 0;
+            movementState = 'idle';
+            movementVelocity = 0.0;
+            targetVelocity = 0.0;
+            isJumping = false; isClimbing = false; sidestepTimer = 0; stumbleTimer = 0;
+            isFallen = false; isRecovering = false;
+            if (pendingFallOverlayTimeout) { clearTimeout(pendingFallOverlayTimeout); pendingFallOverlayTimeout = null; }
+            hideFallOverlay();
+            generateProceduralTerrain(biome);
+            buildStartMarker();
+            spawnObstacleField(biome);
+            document.getElementById('telemetry-state').textContent = 'IDLE (STANDING)';
+        }
+
+        async function executeNeuralCommandPipeline() {
+            const commandInput = document.getElementById('command-input');
+            const log = document.getElementById('diagnostic-log');
+            const shimmerHud = document.getElementById('shimmer-hud');
+            const executeBtn = document.getElementById('execute-btn');
+
+            const commandText = commandInput.value.trim();
+            if (!commandText) {
+                log.innerHTML += `<br>[WARN]: Traversal instruction vector empty.`;
+                return;
+            }
+
+            if (isFallen || isRecovering) {
+                log.innerHTML += `<br>[BLOCKED]: Robot is down. Press [R] to reboot before issuing new commands.`;
+                return;
+            }
+
+            shimmerHud.classList.remove('hidden');
+            executeBtn.disabled = true;
+            log.innerHTML += `<br>[PIPELINE]: Processing Kinematic Brain request...`;
+
+            try {
+                const payload = {
+                    command: commandText,
+                    terrain: document.getElementById('terrain-selector').value,
+                    friction: parseFloat(document.getElementById('friction-slider').value),
+                    angle: parseInt(document.getElementById('angle-slider').value)
+                };
+
+                if (activeObstacle && !activeObstacle.cleared) {
+                    const { forwardDist } = relativeLocal(activeObstacle);
+                    payload.obstacle = { type: activeObstacle.type, distance: Math.max(0, forwardDist) };
+                }
+
+                const response = await fetch('/api/traverse', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    log.innerHTML += `<br>[ERR]: ${data.error}`;
+                    return;
+                }
+
+                if (data.trigger_fall) {
+                    // Operator explicitly commanded the robot to fall/collapse -- reuse the exact
+                    // same fall + delayed system-overload flow as a tilt-triggered fall.
+                    const fallDirectionVectors = {
+                        forward: { pitch: -0.6, roll: 0 },
+                        backward: { pitch: 0.6, roll: 0 },
+                        left: { pitch: 0, roll: -0.6 },
+                        right: { pitch: 0, roll: 0.6 }
+                    };
+                    const fallVec = fallDirectionVectors[data.fall_direction] || fallDirectionVectors.forward;
+                    triggerFall(fallVec.pitch, fallVec.roll);
+
+                    log.innerHTML += `<br>[FALL]: Operator-commanded shutdown &mdash; collapsing ${(data.fall_direction || 'forward').toUpperCase()}.`;
+                    document.getElementById('rationale-card').classList.remove('hidden');
+                    document.getElementById('telemetry-rationale').textContent = data.biomechanical_rationale || 'Operator-commanded fall executed.';
+                    log.scrollTop = log.scrollHeight;
+                    return;
+                }
+
+                if (data.movement_state) {
+                    movementState = data.movement_state;
+                    document.getElementById('telemetry-state').textContent = movementState.toUpperCase();
+                }
+
+                if (data.joint_angles) {
+                    targetHipAngle = (data.joint_angles.hip || 0) * (Math.PI / 180);
+                    targetKneeAngle = (data.joint_angles.knee || 0) * (Math.PI / 180);
+                }
+                if (data.center_of_mass_shift) {
+                    targetCOMYOffset = data.center_of_mass_shift.y || 0.0;
+                }
+                if (data.step_frequency !== undefined) {
+                    targetStepFrequency = sanitizeStepFrequency(data.step_frequency);
+                }
+
+                if (data.target_pelvic_quaternion) {
+                    const q = data.target_pelvic_quaternion;
+                    targetPelvicQuaternion.set(q.x || 0, q.y || 0, q.z || 0, q.w !== undefined ? q.w : 1);
+                    if (targetPelvicQuaternion.lengthSq() > 0) targetPelvicQuaternion.normalize();
+                }
+                if (data.calculated_capture_point) {
+                    targetCaptureX = data.calculated_capture_point.x || 0;
+                    targetCaptureZ = data.calculated_capture_point.z || 0;
+                }
+
+                let rotationApplied = false;
+                if (data.rotation && data.rotation.turn && data.rotation.turn !== 'none') {
+                    const deg = data.rotation.angle_degrees || 90;
+                    const dir = data.rotation.turn === 'clockwise' ? 1 : -1;
+                    targetHeading += dir * THREE.MathUtils.degToRad(deg);
+                    rotationApplied = true;
+                    log.innerHTML += `<br>[TURN]: Rotating ${data.rotation.turn} ${deg.toFixed(0)}°.`;
+                }
+
+                if (activeObstacle && !activeObstacle.cleared) {
+                    const action = data.obstacle_action || 'none';
+                    const validActions = OBSTACLE_CLEAR_ACTIONS[activeObstacle.type] || [];
+
+                    if (validActions.includes(action)) {
+                        markObstacleCleared(activeObstacle);
+                        document.getElementById('hazard-hud').classList.add('hidden');
+                        targetVelocity = sanitizeLipVelocity(Math.max(data.velocity !== undefined ? data.velocity : 1.5, 1.2), movementState);
+                        movementVelocity = targetVelocity;
+
+                        if (action === 'jump') {
+                            isJumping = true;
+                            jumpStartTime = clock.getElapsedTime();
+                        } else if (action === 'climb') {
+                            isClimbing = true;
+                            climbStartTime = clock.getElapsedTime();
+                        } else if (action === 'sidestep_left') {
+                            sidestepSign = -1;
+                            sidestepTimer = Math.abs(data.lateral_shift || 1.4) / SIDESTEP_SPEED;
+                        } else if (action === 'sidestep_right') {
+                            sidestepSign = 1;
+                            sidestepTimer = Math.abs(data.lateral_shift || 1.4) / SIDESTEP_SPEED;
+                        }
+
+                        log.innerHTML += `<br>[CLEARED]: '${activeObstacle.type}' cleared via '${action}'.`;
+                    } else if (action !== 'none') {
+                        triggerStumble();
+                        log.innerHTML += `<br>[HAZARD FAIL]: Action '${action}' invalid for '${activeObstacle.type}'.`;
+                    } else if (rotationApplied) {
+                        targetVelocity = sanitizeLipVelocity(data.velocity !== undefined ? data.velocity : movementVelocity, movementState);
+                        log.innerHTML += `<br>[DETOUR]: Routing around hazard.`;
+                    } else {
+                        log.innerHTML += `<br>[HAZARD]: Hazard ahead blocking path.`;
+                    }
+                    updateObstacleHud();
+                } else if (data.velocity !== undefined) {
+                    targetVelocity = sanitizeLipVelocity(data.velocity, movementState);
+                }
+
+                document.getElementById('rationale-card').classList.remove('hidden');
+                document.getElementById('telemetry-rationale').textContent = data.biomechanical_rationale || 'Processed successfully.';
+
+                const torque = data.torque_compensation || { ankle: 0, knee: 0 };
+                document.getElementById('telemetry-torque').textContent = `${(torque.ankle || 0).toFixed(1)} / ${(torque.knee || 0).toFixed(1)} Nm`;
+
+                log.innerHTML += `<br>[OK]: State calibrated to: ${movementState.toUpperCase()}.`;
+                log.scrollTop = log.scrollHeight;
+
+            } catch (err) {
+                console.error(err);
+                log.innerHTML += `<br>[ERR]: Pipeline communication timeout.`;
+            } finally {
+                shimmerHud.classList.add('hidden');
+                executeBtn.disabled = false;
+            }
+        }
+
+        function setupVoiceProcessingEngine() {
+            const log = document.getElementById('diagnostic-log');
+            const voiceBtn = document.getElementById('voice-btn');
+            const commandInput = document.getElementById('command-input');
+
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+            if (!SpeechRecognition) {
+                log.innerHTML += `<br>[WARN]: Speech API unsupported in current browser.`;
+                voiceBtn.disabled = true;
+                voiceBtn.textContent = 'Speech Unsupported';
+                return;
+            }
+
+            recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.interimResults = false;
+            recognition.lang = 'en-US';
+
+            recognition.onstart = () => {
+                log.innerHTML += `<br>[AUDIO]: Natural language stream listener connected.`;
+            };
+
+            recognition.onresult = (event) => {
+                const speechToText = event.results[0][0].transcript;
+                commandInput.value = speechToText;
+                log.innerHTML += `<br>[INPUT Captured]: "${speechToText}"`;
+                executeNeuralCommandPipeline();
+            };
+
+            recognition.onerror = (event) => {
+                log.innerHTML += `<br>[AUDIO ERR]: Voice input error [${event.error}]`;
+                stopAudioStreamCapture();
+            };
+
+            recognition.onend = () => {
+                if (isRecording) stopAudioStreamCapture();
+            };
+
+            voiceBtn.addEventListener('mousedown', startAudioStreamCapture);
+            voiceBtn.addEventListener('mouseup', stopAudioStreamCapture);
+            voiceBtn.addEventListener('mouseleave', stopAudioStreamCapture);
+
+            voiceBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startAudioStreamCapture(); });
+            voiceBtn.addEventListener('touchend', (e) => { e.preventDefault(); stopAudioStreamCapture(); });
+        }
+
+        async function startAudioStreamCapture() {
+            if (isRecording) return;
+            isRecording = true;
+
+            const voiceBtn = document.getElementById('voice-btn');
+            const placeholder = document.getElementById('audio-placeholder-text');
+
+            voiceBtn.textContent = 'LISTENING...';
+            voiceBtn.className = 'flex-1 bg-amber-500/20 text-amber-400 border border-amber-500/50 text-xs font-bold py-2 rounded-lg uppercase tracking-wider transition-all cursor-pointer font-mono select-none';
+            placeholder.classList.add('hidden');
+
+            try {
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+                analyser = audioCtx.createAnalyser();
+                analyser.fftSize = 256;
+
+                sourceNode = audioCtx.createMediaStreamSource(stream);
+                sourceNode.connect(analyser);
+
+                const bufferLength = analyser.frequencyBinCount;
+                dataArray = new Uint8Array(bufferLength);
+
+                recognition.start();
+                drawNeonAudioWaveform();
+
+            } catch (err) {
+                console.error(err);
+                document.getElementById('diagnostic-log').innerHTML += `<br>[ERR]: Audio hardware access denied.`;
+                stopAudioStreamCapture();
+            }
+        }
+
+        function stopAudioStreamCapture() {
+            if (!isRecording) return;
+            isRecording = false;
+
+            const voiceBtn = document.getElementById('voice-btn');
+            const placeholder = document.getElementById('audio-placeholder-text');
+
+            voiceBtn.textContent = 'Hold to Speak';
+            voiceBtn.className = 'flex-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold py-2 rounded-lg uppercase tracking-wider transition-all cursor-pointer font-mono select-none';
+            placeholder.classList.remove('hidden');
+
+            if (recognition) recognition.stop();
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+
+            if (sourceNode) {
+                sourceNode.disconnect();
+                sourceNode.mediaStream.getTracks().forEach(track => track.stop());
+            }
+
+            const canvas = document.getElementById('waveform-canvas');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function drawNeonAudioWaveform() {
+            if (!isRecording) return;
+            animationFrameId = requestAnimationFrame(drawNeonAudioWaveform);
+
+            const canvas = document.getElementById('waveform-canvas');
+            const ctx = canvas.getContext('2d');
+
+            canvas.width = canvas.parentElement.clientWidth;
+            canvas.height = canvas.parentElement.clientHeight;
+
+            analyser.getByteTimeDomainData(dataArray);
+
+            ctx.fillStyle = '#06070a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#10b981';
+            ctx.shadowBlur = 8;
+            ctx.shadowColor = '#10b981';
+
+            ctx.beginPath();
+            const sliceWidth = canvas.width / dataArray.length;
+            let x = 0;
+
+            for (let i = 0; i < dataArray.length; i++) {
+                const v = dataArray[i] / 128.0;
+                const y = (v * canvas.height) / 2;
+
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+                x += sliceWidth;
+            }
+
+            ctx.lineTo(canvas.width, canvas.height / 2);
+            ctx.stroke();
+        }
+
+        function checkObstacleProximity() {
+            if (activeObstacle && !activeObstacle.cleared) {
+                const { forwardDist, lateralDist } = relativeLocal(activeObstacle);
+                const stillBlocking = forwardDist >= -0.3 && forwardDist < DETECTION_RANGE + 1.0 && Math.abs(lateralDist) < LANE_WIDTH;
+                if (stillBlocking) {
+                    targetVelocity = 0;
+                    updateObstacleHud();
+                    return;
+                } else {
+                    document.getElementById('diagnostic-log').innerHTML += `<br>[DETOUR]: Hazard no longer blocking path.`;
+                    activeObstacle = null;
+                    document.getElementById('hazard-hud').classList.add('hidden');
+                    updateObstacleHud();
+                }
+            }
+
+            if (activeObstacle && activeObstacle.cleared) {
+                const { forwardDist } = relativeLocal(activeObstacle);
+                if (forwardDist < CLEAR_PASS_RANGE) {
+                    activeObstacle = null;
+                    updateObstacleHud();
+                }
+                return;
+            }
+
+            for (const o of obstacles) {
+                if (o.cleared) continue;
+                const { forwardDist, lateralDist } = relativeLocal(o);
+                if (forwardDist >= -0.3 && forwardDist < DETECTION_RANGE && Math.abs(lateralDist) < LANE_WIDTH) {
+                    activeObstacle = o;
+                    targetVelocity = 0;
+                    document.getElementById('hazard-hud').classList.remove('hidden');
+                    document.getElementById('hazard-hud').textContent = `HAZARD DETECTED: ${o.type.replace('_', ' ').toUpperCase()} — AWAITING INSTRUCTION`;
+                    document.getElementById('diagnostic-log').innerHTML += `<br>[HAZARD]: '${o.type}' detected ahead. Robot halted.`;
+                    updateObstacleHud();
+                    break;
+                }
+            }
+        }
+
+        function updateGait(elapsedTime) {
+            const baseHip = currentHipAngle;
+            // Positive knee.rotation.x sweeps the shin backward relative to the thigh, which is the
+            // only anatomically valid knee-flexion direction. baseKnee no longer flips the sign.
+            const baseKnee = currentKneeAngle;
+
+            if (isJumping) {
+                leftHip.rotation.x = 0.7; rightHip.rotation.x = 0.5;
+                // FIX: was negative (-1.1 / -0.8), which hyperextended the knee forward -- the
+                // classic "legs bending backwards" glitch. Positive values flex the knee correctly.
+                leftKnee.rotation.x = 1.1; rightKnee.rotation.x = 0.8;
+                leftShoulder.rotation.x = -0.6; rightShoulder.rotation.x = 0.4;
+                return;
+            }
+
+            let freq, legAmplitude, kneeAmplitude, armAmplitude;
+            if (isClimbing) {
+                freq = 3.2; legAmplitude = 0.55; kneeAmplitude = 1.3; armAmplitude = 0.5;
+            } else if (movementState === 'run') {
+                freq = Math.max(globalStepFrequency, 1.5); legAmplitude = 0.55; kneeAmplitude = 0.9; armAmplitude = 0.6;
+            } else if (movementState !== 'idle' && globalStepFrequency > 0) {
+                freq = globalStepFrequency; legAmplitude = 0.3; kneeAmplitude = 0.55; armAmplitude = 0.35;
+            } else {
+                freq = 0.9; legAmplitude = 0.04; kneeAmplitude = 0.03; armAmplitude = 0.03;
+            }
+
+            const leftPhase = elapsedTime * freq * 2.0;
+            const rightPhase = leftPhase + Math.PI;
+
+            leftHip.rotation.x = baseHip + Math.sin(leftPhase) * legAmplitude;
+            rightHip.rotation.x = baseHip + Math.sin(rightPhase) * legAmplitude;
+            // FIX: bend (positive rotation.x, shin sweeps backward relative to the thigh) only
+            // during the forward swing phase (sin(phase) < 0, i.e. thigh moving forward), and stay
+            // straight during stance/push-off. Previously this subtracted during the wrong half of
+            // the cycle, which both bent the knee at the wrong time and in the wrong direction.
+            leftKnee.rotation.x = baseKnee + Math.max(0, -Math.sin(leftPhase)) * kneeAmplitude;
+            rightKnee.rotation.x = baseKnee + Math.max(0, -Math.sin(rightPhase)) * kneeAmplitude;
+
+            leftShoulder.rotation.x = -Math.sin(leftPhase) * armAmplitude;
+            rightShoulder.rotation.x = -Math.sin(rightPhase) * armAmplitude;
+        }
+
+        function animateSimulationLoop() {
+            requestAnimationFrame(animateSimulationLoop);
+
+            const elapsedTime = clock.getElapsedTime();
+            const dt = clock.getDelta() || 0.016;
+
+            if (!isFallen && !isRecovering) {
+                checkObstacleProximity();
+            }
+
+            currentHipAngle = THREE.MathUtils.lerp(currentHipAngle, targetHipAngle, 0.05);
+            currentKneeAngle = THREE.MathUtils.lerp(currentKneeAngle, targetKneeAngle, 0.05);
+            currentCOMYOffset = THREE.MathUtils.lerp(currentCOMYOffset, targetCOMYOffset, 0.05);
+
+            // LIP-bounded speed integration: the pendulum's own restoring dynamics (omega^2 * max
+            // step length) cap how fast movementVelocity is allowed to change per frame, so a bad
+            // or hallucinated "velocity" value from the Kinematic Brain response can never snap the
+            // robot to an unrealistic speed -- it can only accelerate/decelerate as fast as a real
+            // stepping pattern physically could. This directly fixes the random speed-burst bug.
+            const desiredVelocity = (isFallen || isRecovering) ? 0 : targetVelocity;
+            const speedError = desiredVelocity - movementVelocity;
+            const speedStep = THREE.MathUtils.clamp(speedError, -MAX_LIP_ACCEL * dt, MAX_LIP_ACCEL * dt);
+            movementVelocity += speedStep;
+
+            globalStepFrequency = THREE.MathUtils.lerp(globalStepFrequency, targetStepFrequency, 0.05);
+            currentHeading = THREE.MathUtils.lerp(currentHeading, targetHeading, 0.06);
+
+            let jumpArc = 0, climbArc = 0;
+            let forcedSpeed = null;
+            if (!isFallen && !isRecovering) {
+                if (isJumping) {
+                    const t = (elapsedTime - jumpStartTime) / JUMP_DURATION;
+                    if (t >= 1) { isJumping = false; }
+                    else { jumpArc = Math.sin(Math.min(1, Math.max(0, t)) * Math.PI) * JUMP_HEIGHT; forcedSpeed = JUMP_FORWARD_SPEED; }
+                }
+                if (isClimbing) {
+                    const t = (elapsedTime - climbStartTime) / CLIMB_DURATION;
+                    if (t >= 1) { isClimbing = false; }
+                    else { climbArc = Math.sin(Math.min(1, Math.max(0, t)) * Math.PI) * CLIMB_HEIGHT; forcedSpeed = CLIMB_FORWARD_SPEED; }
+                }
+            }
+
+            const effectiveSpeed = forcedSpeed !== null ? forcedSpeed : movementVelocity;
+            if (!isFallen && !isRecovering && (movementState !== 'idle' || forcedSpeed !== null) && effectiveSpeed > 0) {
+                const Fx = Math.sin(currentHeading), Fz = -Math.cos(currentHeading);
+                robotPos.x += Fx * effectiveSpeed * dt * SPEED_SCALE;
+                robotPos.z += Fz * effectiveSpeed * dt * SPEED_SCALE;
+            }
+            if (!isFallen && !isRecovering && sidestepTimer > 0) {
+                const Rx = Math.cos(currentHeading), Rz = Math.sin(currentHeading);
+                robotPos.x += Rx * sidestepSign * SIDESTEP_SPEED * dt;
+                robotPos.z += Rz * sidestepSign * SIDESTEP_SPEED * dt;
+                sidestepTimer = Math.max(0, sidestepTimer - dt);
+            }
+            robotPos.x = THREE.MathUtils.clamp(robotPos.x, -27, 27);
+            robotPos.z = THREE.MathUtils.clamp(robotPos.z, -27, 27);
+
+            if (humanoidGroup) {
+                let activeTerrainProfile = document.getElementById('terrain-selector').value;
+                let groundAltitude = calculateGroundMathHeight(robotPos.x, robotPos.z, activeTerrainProfile);
+
+                // Terrain-aware posture: sample the ground height a short distance ahead and to the
+                // right (in the robot's own current facing frame) to get the local slope, so the
+                // body's pitch/roll can match the ground geometry instead of always staying upright.
+                const forwardX = Math.sin(currentHeading), forwardZ = -Math.cos(currentHeading);
+                const rightX = Math.cos(currentHeading), rightZ = Math.sin(currentHeading);
+                const sampleEps = 0.15;
+                const hHere = groundAltitude;
+                const hForward = calculateGroundMathHeight(robotPos.x + forwardX * sampleEps, robotPos.z + forwardZ * sampleEps, activeTerrainProfile);
+                const hRight = calculateGroundMathHeight(robotPos.x + rightX * sampleEps, robotPos.z + rightZ * sampleEps, activeTerrainProfile);
+                const slopePitch = Math.atan2(hForward - hHere, sampleEps);
+                const slopeRoll = Math.atan2(hRight - hHere, sampleEps);
+
+                // Maximum-tilt balance check: if the ground under the robot is steeper than the
+                // stabilizers can realistically hold, trigger the fall state.
+                if (!isFallen && !isRecovering) {
+                    if (Math.abs(slopePitch) > MAX_RECOVERABLE_TILT || Math.abs(slopeRoll) > MAX_RECOVERABLE_TILT) {
+                        triggerFall(slopePitch, slopeRoll);
+                    }
+                }
+
+                humanoidGroup.position.x = robotPos.x;
+                humanoidGroup.position.z = robotPos.z;
+                humanoidGroup.rotation.y = currentHeading;
+
+                let leanZ = 0;
+                if (stumbleTimer > 0) {
+                    stumbleTimer = Math.max(0, stumbleTimer - dt);
+                    leanZ = Math.sin(stumbleTimer * 45) * 0.18 * stumbleTimer;
+                } else if (sidestepTimer > 0) {
+                    leanZ = -sidestepSign * 0.15;
+                }
+
+                if (isFallen || isRecovering) {
+                    // Fall / recovery pose: tip the whole body over toward the direction that
+                    // exceeded the balance threshold, and lower it toward the ground as it collapses.
+                    let lieAngle = 0;
+                    if (isFallen) {
+                        const t = Math.min(1, (elapsedTime - fallStartTime) / FALL_ANIM_DURATION);
+                        const eased = 1 - Math.pow(1 - t, 2);
+                        lieAngle = eased * FALL_TARGET_ANGLE;
+                    } else {
+                        const t = (elapsedTime - recoveryStartTime) / RECOVERY_ANIM_DURATION;
+                        if (t >= 1) {
+                            isRecovering = false;
+                            lieAngle = 0;
+                            document.getElementById('telemetry-state').textContent = 'IDLE (STANDING)';
+                        } else {
+                            const eased = 1 - Math.pow(1 - t, 3);
+                            lieAngle = FALL_TARGET_ANGLE * (1 - eased);
+                        }
+                    }
+
+                    if (fallTiltAxis === 'x') {
+                        humanoidGroup.rotation.x = fallSign * lieAngle;
+                        humanoidGroup.rotation.z = THREE.MathUtils.lerp(humanoidGroup.rotation.z, 0, 0.1);
+                    } else {
+                        humanoidGroup.rotation.z = fallSign * lieAngle;
+                        humanoidGroup.rotation.x = THREE.MathUtils.lerp(humanoidGroup.rotation.x, 0, 0.1);
+                    }
+
+                    const standY = groundAltitude + currentCOMYOffset;
+                    const lieY = groundAltitude + 0.14;
+                    const lieBlend = THREE.MathUtils.clamp(lieAngle / FALL_TARGET_ANGLE, 0, 1);
+                    humanoidGroup.position.y = THREE.MathUtils.lerp(standY, lieY, lieBlend);
+                } else {
+                    // Standing: blend pitch/roll toward the sampled ground slope so the body (and
+                    // therefore the feet, which rotate with it) sits flush against sloped ground
+                    // instead of staying perfectly upright and clipping through the floor.
+                    humanoidGroup.rotation.x = THREE.MathUtils.lerp(humanoidGroup.rotation.x, slopePitch, 0.08);
+                    humanoidGroup.rotation.z = THREE.MathUtils.lerp(humanoidGroup.rotation.z, slopeRoll + leanZ, 0.15);
+                    humanoidGroup.position.y = groundAltitude + currentCOMYOffset + jumpArc + climbArc;
+                }
+
+                currentPelvicQuaternion.slerp(targetPelvicQuaternion, 0.08);
+                if (torsoGroup) {
+                    torsoGroup.quaternion.copy(currentPelvicQuaternion);
+                }
+
+                currentCaptureX = THREE.MathUtils.lerp(currentCaptureX, targetCaptureX, 0.05);
+                currentCaptureZ = THREE.MathUtils.lerp(currentCaptureZ, targetCaptureZ, 0.05);
+                if (captureIndicator) {
+                    const s = Math.sin(currentHeading), c = Math.cos(currentHeading);
+                    const zmpWorldX = robotPos.x + (c * currentCaptureX + s * currentCaptureZ);
+                    const zmpWorldZ = robotPos.z + (s * currentCaptureX - c * currentCaptureZ);
+                    const zmpGroundY = calculateGroundMathHeight(zmpWorldX, zmpWorldZ, activeTerrainProfile);
+                    captureIndicator.position.set(zmpWorldX, zmpGroundY + 0.06, zmpWorldZ);
+                    captureIndicator.material.emissiveIntensity = 1.0 + Math.sin(elapsedTime * 6.0) * 0.4;
+                }
+
+                updateGait(elapsedTime);
+            }
+
+            updateObstacleVisuals(elapsedTime);
+
+            document.getElementById('telemetry-freq').textContent = `${globalStepFrequency.toFixed(2)} Hz`;
+
+            const zmpHUD = document.getElementById('telemetry-zmp');
+            if (zmpHUD) {
+                let stabilityFluctuation = movementState === 'idle' ? 0.3 : movementState === 'walk' ? 0.8 : 2.5;
+                let stumblePenalty = stumbleTimer > 0 ? stumbleTimer * 40 : 0;
+                if (isFallen || isRecovering) {
+                    zmpHUD.textContent = `${isFallen ? '0.0' : '12.0'}%`;
+                } else {
+                    const baseStability = 98.0 - (movementVelocity * 2) - stumblePenalty + Math.sin(elapsedTime * 5.0) * stabilityFluctuation;
+                    zmpHUD.textContent = `${Math.min(100, Math.max(10, baseStability)).toFixed(1)}%`;
+                }
+            }
+
+            if (camera && humanoidGroup) {
+                let targetCamX = humanoidGroup.position.x + Math.sin(elapsedTime * 0.1) * 10;
+                let targetCamZ = humanoidGroup.position.z + Math.cos(elapsedTime * 0.1) * 10;
+
+                camera.position.x = THREE.MathUtils.lerp(camera.position.x, targetCamX, 0.05);
+                camera.position.z = THREE.MathUtils.lerp(camera.position.z, targetCamZ, 0.05);
+                camera.position.y = THREE.MathUtils.lerp(camera.position.y, humanoidGroup.position.y + 3.5, 0.05);
+
+                camera.lookAt(humanoidGroup.position.x, humanoidGroup.position.y + 0.8, humanoidGroup.position.z);
+            }
+
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
