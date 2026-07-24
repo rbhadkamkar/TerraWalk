@@ -810,6 +810,15 @@
 
         let currentPelvicQuaternion = new THREE.Quaternion(0, 0, 0, 1);
         let targetPelvicQuaternion = new THREE.Quaternion(0, 0, 0, 1);
+        // Deterministic, continuously-recomputed slope-compensation lean (see computeTerrainLean
+        // below), combined with the AI-driven command quaternion every frame before being applied.
+        const terrainPelvicQuaternion = new THREE.Quaternion(0, 0, 0, 1);
+        const combinedPelvicTarget = new THREE.Quaternion(0, 0, 0, 1);
+
+        // Running gait phase accumulator. Advanced each frame by freq * dt (see updateGait) instead
+        // of being recomputed as elapsedTime * freq every frame -- see the FIX note on gaitPhase
+        // inside updateGait for why the old approach caused the legs to briefly race then settle.
+        let gaitPhase = 0;
 
         let currentCaptureX = 0.0, targetCaptureX = 0.0;
         let currentCaptureZ = 0.0, targetCaptureZ = 0.0;
@@ -825,6 +834,7 @@
         const SIDESTEP_SPEED = 2.0;
 
         let stumbleTimer = 0;
+        let isPipelineBusy = false; // guards against overlapping /api/traverse requests racing each other
         let currentBiome = 'flat';
         let noiseSeedX = 0, noiseSeedZ = 0;
         let currentGroundAngleRad = 0;
@@ -853,11 +863,38 @@
             return THREE.MathUtils.clamp(rawFreq, MIN_STEP_FREQUENCY, MAX_STEP_FREQUENCY);
         }
 
+        // Deterministic slope-compensation lean: leans toward whichever side is higher (into the
+        // grade -- forward going uphill, backward going downhill, sideways into a cross-slope),
+        // proportional to how far the local slope is past COMFORTABLE_TILT, capped at
+        // MAX_TERRAIN_LEAN. Returns exactly 0 below COMFORTABLE_TILT, so it eases back to 0 on its
+        // own as the ground flattens out -- callers don't need a separate reset step. Takes the sign
+        // and magnitude straight from the actual measured local slope (slopePitch/slopeRoll, which
+        // already account for the robot's current heading), not from anything the Kinematic Brain
+        // guesses, since that response has no reliable way to know which way the robot is facing.
+        function computeTerrainLean(slopeAngle) {
+            const magnitude = THREE.MathUtils.clamp(
+                (Math.abs(slopeAngle) - COMFORTABLE_TILT) / (MAX_RECOVERABLE_TILT - COMFORTABLE_TILT), 0, 1
+            ) * MAX_TERRAIN_LEAN;
+            return -magnitude * Math.sign(slopeAngle);
+        }
+
         // --- Fall / Recovery State Machine ---
         let isFallen = false, fallStartTime = -999;
         let isRecovering = false, recoveryStartTime = -999;
         let fallTiltAxis = 'z', fallSign = 1;
-        const MAX_RECOVERABLE_TILT = THREE.MathUtils.degToRad(20); // beyond this, stabilizers can't compensate
+        // Graduated slope response: below COMFORTABLE_TILT the robot walks normally with no extra
+        // lean or speed penalty. Between COMFORTABLE_TILT and MAX_RECOVERABLE_TILT it progressively
+        // slows down and leans into the grade (see computeTerrainLean) instead of staying fully
+        // upright at full speed right up until it suddenly falls. Only beyond MAX_RECOVERABLE_TILT --
+        // genuinely unclimbable -- does it still trigger a fall. MAX_RECOVERABLE_TILT is raised from
+        // the old flat 20 degrees, which several procedurally-generated biomes (heavy rubble,
+        // volcanic crag, collapsing ground) locally exceed even on an ordinary walkable patch,
+        // causing near-instant falls on spawn or after a couple of steps.
+        const COMFORTABLE_TILT = THREE.MathUtils.degToRad(12);
+        const MAX_RECOVERABLE_TILT = THREE.MathUtils.degToRad(45); // beyond this, stabilizers can't compensate
+        const MAX_TERRAIN_LEAN = THREE.MathUtils.degToRad(20); // clamp on the terrain-driven portion of the pelvic tilt
+        const MAX_TERRAIN_SPEED_PENALTY = 0.85; // up to an 85% walking-speed cut at the worst recoverable tilt
+        let terrainSlopeSeverity = 0; // 0 (comfortable) .. 1 (at the fall threshold); updated once per frame
         const FALL_TARGET_ANGLE = THREE.MathUtils.degToRad(84); // resting tilt once fully collapsed
         const FALL_ANIM_DURATION = 0.8;
         const RECOVERY_ANIM_DURATION = 1.4;
@@ -1494,9 +1531,28 @@
                 return;
             }
 
+            // FIX: without this guard, a second traverse request (e.g. voice input firing while a
+            // typed command is still in flight) could run concurrently with the first, and whichever
+            // response happened to arrive later would silently overwrite the other's state --
+            // regardless of which command was actually issued more recently. That race condition is
+            // a direct source of the "commands can be very buggy" behavior, especially when different
+            // prompts (hazard vs. no hazard, different terrain) take noticeably different amounts of
+            // time to resolve.
+            if (isPipelineBusy) {
+                log.innerHTML += `<br>[BUSY]: Kinematic Brain request already in progress -- please wait.`;
+                return;
+            }
+            isPipelineBusy = true;
+
             shimmerHud.classList.remove('hidden');
             executeBtn.disabled = true;
             log.innerHTML += `<br>[PIPELINE]: Processing Kinematic Brain request...`;
+
+            // Bound the worst-case wait instead of leaving the pipeline hung indefinitely if the LLM
+            // call stalls -- addresses commands that sometimes take a very long time to resolve.
+            const requestTimeoutMs = 15000;
+            const timeoutController = new AbortController();
+            const timeoutId = setTimeout(() => timeoutController.abort(), requestTimeoutMs);
 
             try {
                 const payload = {
@@ -1514,7 +1570,8 @@
                 const response = await fetch('/api/traverse', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
+                    body: JSON.stringify(payload),
+                    signal: timeoutController.signal
                 });
 
                 const data = await response.json();
@@ -1628,8 +1685,14 @@
 
             } catch (err) {
                 console.error(err);
-                log.innerHTML += `<br>[ERR]: Pipeline communication timeout.`;
+                if (err.name === 'AbortError') {
+                    log.innerHTML += `<br>[ERR]: Kinematic Brain request timed out after ${(requestTimeoutMs / 1000).toFixed(0)}s -- please try the command again.`;
+                } else {
+                    log.innerHTML += `<br>[ERR]: Pipeline communication timeout.`;
+                }
             } finally {
+                clearTimeout(timeoutId);
+                isPipelineBusy = false;
                 shimmerHud.classList.add('hidden');
                 executeBtn.disabled = false;
             }
@@ -1823,7 +1886,7 @@
             }
         }
 
-        function updateGait(elapsedTime) {
+        function updateGait(elapsedTime, dt) {
             const baseHip = currentHipAngle;
             // Positive knee.rotation.x sweeps the shin backward relative to the thigh, which is the
             // only anatomically valid knee-flexion direction. baseKnee no longer flips the sign.
@@ -1849,7 +1912,18 @@
                 freq = 0.9; legAmplitude = 0.04; kneeAmplitude = 0.03; armAmplitude = 0.03;
             }
 
-            const leftPhase = elapsedTime * freq * 2.0;
+            // FIX: this used to be `elapsedTime * freq * 2.0`, i.e. leg phase computed fresh each
+            // frame from absolute session time multiplied by the *current* freq. Whenever freq
+            // changed (movement state changing, a new command setting a different step_frequency),
+            // the instantaneous rate of change of that expression is freq*2 PLUS elapsedTime times
+            // freq's own rate of change -- and with elapsedTime already tens of seconds into a
+            // session, that second term could spike the apparent leg speed far past normal for a
+            // moment before settling once freq stopped changing. Integrating a running phase from
+            // freq*dt every frame makes the instantaneous rate exactly freq*2 at all times, so a
+            // freq change (e.g. right when a neural traversal command lands) can no longer cause a
+            // leg-speed burst.
+            gaitPhase += freq * dt * 2.0;
+            const leftPhase = gaitPhase;
             const rightPhase = leftPhase + Math.PI;
 
             leftHip.rotation.x = baseHip + Math.sin(leftPhase) * legAmplitude;
@@ -1884,7 +1958,13 @@
             // or hallucinated "velocity" value from the Kinematic Brain response can never snap the
             // robot to an unrealistic speed -- it can only accelerate/decelerate as fast as a real
             // stepping pattern physically could. This directly fixes the random speed-burst bug.
-            const desiredVelocity = (isFallen || isRecovering) ? 0 : targetVelocity;
+            // Scale the desired walking speed down as the terrain gets steeper (see
+            // terrainSlopeSeverity, refreshed once per frame further down using the actual local
+            // slope) instead of holding full speed right up until the robot suddenly falls. This
+            // reads last frame's severity reading -- one frame of lag, well under a rendered frame's
+            // worth of travel -- rather than reordering the existing position/slope-sampling pipeline.
+            const terrainSpeedMultiplier = 1 - terrainSlopeSeverity * MAX_TERRAIN_SPEED_PENALTY;
+            const desiredVelocity = (isFallen || isRecovering) ? 0 : targetVelocity * terrainSpeedMultiplier;
             const speedError = desiredVelocity - movementVelocity;
             const speedStep = THREE.MathUtils.clamp(speedError, -MAX_LIP_ACCEL * dt, MAX_LIP_ACCEL * dt);
             movementVelocity += speedStep;
@@ -1938,10 +2018,17 @@
                 const slopePitch = Math.atan2(hForward - hHere, sampleEps);
                 const slopeRoll = Math.atan2(hRight - hHere, sampleEps);
 
-                // Maximum-tilt balance check: if the ground under the robot is steeper than the
-                // stabilizers can realistically hold, trigger the fall state.
+                // Graduated slope response: refresh the severity used for this frame's pelvic lean
+                // and next frame's walking-speed penalty (see computeTerrainLean and the
+                // terrainSpeedMultiplier above), and only trigger an actual fall once the slope is
+                // genuinely beyond what MAX_RECOVERABLE_TILT allows -- not the instant the ground
+                // dips past a flat threshold.
+                const steepestTilt = Math.max(Math.abs(slopePitch), Math.abs(slopeRoll));
+                terrainSlopeSeverity = THREE.MathUtils.clamp(
+                    (steepestTilt - COMFORTABLE_TILT) / (MAX_RECOVERABLE_TILT - COMFORTABLE_TILT), 0, 1
+                );
                 if (!isFallen && !isRecovering) {
-                    if (Math.abs(slopePitch) > MAX_RECOVERABLE_TILT || Math.abs(slopeRoll) > MAX_RECOVERABLE_TILT) {
+                    if (steepestTilt > MAX_RECOVERABLE_TILT) {
                         triggerFall(slopePitch, slopeRoll);
                     }
                 }
@@ -1999,9 +2086,43 @@
                     humanoidGroup.position.y = groundAltitude + currentCOMYOffset + jumpArc + climbArc;
                 }
 
-                currentPelvicQuaternion.slerp(targetPelvicQuaternion, 0.08);
+                // Deterministic terrain-compensation lean, recomputed fresh every frame from the
+                // actual measured local slope (see computeTerrainLean) -- this is what gives varying
+                // degrees of tilt for a slight vs. a deep slope, and eases smoothly back to zero as
+                // the terrain angle flattens out, independent of whether a new command has come in.
+                // It's expressed in the same "raw" convention as the Kinematic Brain's own
+                // target_pelvic_quaternion (see the SIP formula in /api/traverse) so the two can be
+                // combined before the single frame correction below.
+                const pitchLean = computeTerrainLean(slopePitch);
+                const rollLean = computeTerrainLean(slopeRoll);
+                const rawTp = -pitchLean, rawTr = -rollLean;
+                terrainPelvicQuaternion.set(
+                    Math.sin(rawTp / 2) * Math.cos(rawTr / 2),
+                    Math.sin(rawTp / 2) * Math.sin(rawTr / 2),
+                    Math.cos(rawTp / 2) * Math.sin(rawTr / 2),
+                    Math.cos(rawTp / 2) * Math.cos(rawTr / 2)
+                );
+
+                combinedPelvicTarget.copy(terrainPelvicQuaternion).multiply(targetPelvicQuaternion);
+                currentPelvicQuaternion.slerp(combinedPelvicTarget, 0.08);
+
                 if (torsoGroup) {
-                    torsoGroup.quaternion.copy(currentPelvicQuaternion);
+                    // FIX: pelvisGroup (torsoGroup's parent, see buildHumanoidMatrix) carries a
+                    // static 180 degree yaw (rotation.y = Math.PI), so the world-space effect of any
+                    // pitch/roll set directly as torsoGroup's *local* quaternion comes out mirrored
+                    // on both axes. Conjugating by that 180 degree yaw is mathematically equivalent
+                    // to negating the quaternion's x and z components (w and y are unaffected) -- this
+                    // is what actually fixes the reported tilt-direction bug (leaning away from an
+                    // uphill/cross-slope instead of into it, leaning backward instead of forward when
+                    // running/climbing, etc). Both quaternions combined above are left in the
+                    // "un-mirrored" convention up to this point specifically so this correction only
+                    // has to be applied once, here, at the final assignment.
+                    torsoGroup.quaternion.set(
+                        -currentPelvicQuaternion.x,
+                        currentPelvicQuaternion.y,
+                        -currentPelvicQuaternion.z,
+                        currentPelvicQuaternion.w
+                    );
                 }
 
                 currentCaptureX = THREE.MathUtils.lerp(currentCaptureX, targetCaptureX, 0.05);
@@ -2015,7 +2136,7 @@
                     captureIndicator.material.emissiveIntensity = 1.0 + Math.sin(elapsedTime * 6.0) * 0.4;
                 }
 
-                updateGait(elapsedTime);
+                updateGait(elapsedTime, dt);
             }
 
             updateObstacleVisuals(elapsedTime);
