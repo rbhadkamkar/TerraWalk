@@ -255,9 +255,11 @@ def traverse():
             "  accelerating, pushing through). Positive p = leaning backward (braking, bracing, standing up out of a\n"
             "  crouch). Near 0 for idle or a steady flat-ground walk.\n"
             "- Step 2: choose a roll angle r, in radians, HARD CEILING -0.3 to 0.3 -- never exceed this range even for\n"
-            "  extreme commands (side-to-side lean). Driven mainly by the Ground Incline/Tilt telemetry (lean into the\n"
-            "  slope to compensate) and by sidestep_left/sidestep_right actions (lean into the direction of the\n"
-            "  sidestep). Near 0 otherwise.\n"
+            "  extreme commands (side-to-side lean). Driven only by sidestep_left/sidestep_right actions (lean into\n"
+            "  the direction of the sidestep). Near 0 otherwise -- do NOT use the Ground Incline/Tilt telemetry to\n"
+            "  set this; a separate client-side balance system continuously measures the actual ground slope\n"
+            "  under the robot's feet (which this telemetry alone cannot capture, since it doesn't account for\n"
+            "  which way the robot is currently facing) and applies its own slope-compensation lean every frame.\n"
             "- Step 3: combine p and r into the unit quaternion with:\n"
             "    w = cos(p/2) * cos(r/2)\n"
             "    x = sin(p/2) * cos(r/2)\n"
@@ -347,6 +349,118 @@ def traverse():
             "error": "Failed to parse mechanical intelligence matrix.",
             "details": str(e)
         }), 500
+
+# --------------------------------------------------------------------------------------
+# ROBOT SYSTEMS ASSISTANT (Chatbot)
+#
+# Conversational Q&A endpoint that powers the chatbot on the "Robot Systems" info page.
+# It is intentionally independent of the /api/traverse Kinematic Brain pipeline above --
+# it does not affect movement, balance, or any simulation state, it only answers operator
+# questions about the robot's physics/control systems and the application itself.
+# --------------------------------------------------------------------------------------
+ROBOT_ASSISTANT_SYSTEM_PROMPT = (
+    "You are the TerraWalk AI Systems Assistant, an onboard documentation assistant embedded in the "
+    "TerraWalk AI humanoid robotics simulation platform. You answer operator questions about the robot's "
+    "physics, control systems, and the application itself clearly and concisely (roughly 2-5 sentences "
+    "unless the operator explicitly asks for a deeper breakdown).\n\n"
+    "KNOWLEDGE BASE -- TerraWalk AI Kinematic System:\n"
+    "- Spherical Inverted Pendulum (SIP): the torso/pelvis balance model used instead of independent joint "
+    "angles. Balance is expressed as a single unit quaternion (target_pelvic_quaternion) built from a pitch "
+    "angle p (hard range -0.35 to 0.35 radians) and a roll angle r (hard range -0.3 to 0.3 radians):\n"
+    "    w = cos(p/2) * cos(r/2)\n"
+    "    x = sin(p/2) * cos(r/2)\n"
+    "    y = sin(p/2) * sin(r/2)\n"
+    "    z = cos(p/2) * sin(r/2)\n"
+    "  Negative pitch leans the torso forward (running, climbing, accelerating, pushing through). Positive "
+    "pitch leans it backward (braking, bracing, standing up out of a crouch). Roll is driven by sidesteps. "
+    "Quaternions are used specifically because they avoid gimbal lock, unlike stacked Euler joint angles.\n"
+    "- Zero Moment Point (ZMP) / Capture Point: the target ground point (calculated_capture_point, x/z in "
+    "meters relative to the midpoint of the feet) that the pendulum's ground reaction force must project "
+    "onto to remain balanced. In the simulator it's the pulsing red marker at the robot's feet, with the "
+    "green ring showing the current capture/support boundary. z ranges -0.1 to 0.35m (projects further "
+    "forward as speed increases); x ranges -0.3 to 0.3m (shifts laterally during sidesteps or on a cross-"
+    "slope).\n"
+    "- Linear Inverted Pendulum (LIP) locomotion model: bounds walking/running speed using physical leg "
+    "parameters instead of trusting the LLM's raw velocity number directly. Pendulum height is approx. "
+    "0.92m, natural angular frequency omega = sqrt(gravity / height), max step length is approx. 0.85m, "
+    "step frequency ranges 0.4-3.0 Hz, comfortable walking ceiling is 1.6 m/s, and the hard run ceiling is "
+    "max step length multiplied by max step frequency.\n"
+    "- Torque compensation: ankle, knee, and waist joint torques in Newton-meters, ranging -150 to 150, "
+    "computed per command to counteract the requested balance adjustment.\n"
+    "- Stability projection: a 0-100% live confidence readout for how well the current pose is balanced.\n"
+    "- Terrain adaptation: the client continuously measures the actual ground slope under the robot's feet "
+    "and blends a deterministic compensating lean into the pelvic quaternion every frame. Below 12 degrees "
+    "of tilt the robot walks normally; between 12 and 45 degrees it progressively slows down and leans into "
+    "the grade; beyond 45 degrees (MAX_RECOVERABLE_TILT) it triggers a fall/collapse animation, coming to "
+    "rest at an 84 degree lie angle, recoverable with a reboot.\n"
+    "- Hazards: a boulder or crevice can be cleared with 'jump' or 'climb'; an ice patch with 'crouch' or a "
+    "sidestep; debris with 'climb' or a sidestep. Operators can also command a turn/rotation to detour "
+    "around a hazard instead of tackling it head-on.\n"
+    "- Application stack: a Flask backend (deployed on Vercel) calls Groq's Llama 3.1 8B Instant model (the "
+    "'Kinematic Brain') to translate natural-language traversal commands into a balance/gait JSON schema "
+    "every time the operator issues a command. Three.js renders the humanoid and procedural terrain client-"
+    "side at interactive framerates. Supabase provides optional operator authentication.\n\n"
+    "STYLE RULES:\n"
+    "- Stay strictly on the topic of this robot, its physics/control systems, and this application.\n"
+    "- If asked something unrelated (general chit-chat, unrelated coding help, unrelated trivia, etc.), "
+    "briefly and politely redirect the operator back to robot/app topics.\n"
+    "- Be precise with numbers and units when they're relevant, but keep answers conversational rather than "
+    "a dense wall of bullet points, unless the operator explicitly asks for a structured breakdown.\n"
+    "- Never claim the robot is a physical, real-world machine -- it is a browser-based kinematic "
+    "simulation."
+)
+
+
+@app.route('/api/robot-chat', methods=['POST'])
+def robot_chat():
+    """Conversational Q&A endpoint for the Robot Systems info page. Answers operator questions about the
+    robot's physics/control systems and the application itself using the Groq LLM grounded in the fixed
+    knowledge base above. Does not read or write any simulation/traversal state."""
+    if not groq_client:
+        return jsonify({
+            "error": "Groq client uninitialized. Please confirm your GROQ_API_KEY environment configuration mapping."
+        }), 500
+
+    try:
+        data = request.get_json() or {}
+        user_message = (data.get("message") or "").strip()
+        raw_history = data.get("history")
+        raw_history = raw_history if isinstance(raw_history, list) else []
+
+        if not user_message:
+            return jsonify({"error": "Empty message."}), 400
+
+        # Cap history to the last few turns and coerce to the plain {role, content} shape the API
+        # expects, silently dropping anything malformed rather than erroring the whole request out.
+        trimmed_history = []
+        for turn in raw_history[-8:]:
+            if not isinstance(turn, dict):
+                continue
+            role = turn.get("role")
+            content = turn.get("content")
+            if role in ("user", "assistant") and isinstance(content, str) and content.strip():
+                trimmed_history.append({"role": role, "content": content.strip()[:2000]})
+
+        messages = [{"role": "system", "content": ROBOT_ASSISTANT_SYSTEM_PROMPT}]
+        messages.extend(trimmed_history)
+        messages.append({"role": "user", "content": user_message[:2000]})
+
+        chat_completion = groq_client.chat.completions.create(
+            messages=messages,
+            model="llama-3.1-8b-instant",
+            temperature=0.4,
+            max_tokens=500
+        )
+
+        reply = chat_completion.choices[0].message.content
+        return jsonify({"reply": reply})
+
+    except Exception as e:
+        return jsonify({
+            "error": "Failed to reach the TerraWalk AI Systems Assistant.",
+            "details": str(e)
+        }), 500
+
 
 # Expose app cluster instance to Vercel global runtime context
 if __name__ == '__main__':
