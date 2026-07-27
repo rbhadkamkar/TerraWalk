@@ -1,8 +1,10 @@
 import os
 import json
 import math
+import re
 from flask import Flask, render_template, jsonify, request
 from dotenv import load_dotenv
+import groq
 from groq import Groq
 
 # Initialize local environment attributes if executing outside isolated production nodes
@@ -12,7 +14,25 @@ app = Flask(__name__, template_folder='../templates')
 
 # Initialize Groq client securely using environment properties
 api_key = os.environ.get("GROQ_API_KEY")
-groq_client = Groq(api_key=api_key) if api_key else None
+DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
+STRICT_SCHEMA_GROQ_MODELS = {"openai/gpt-oss-20b", "openai/gpt-oss-120b"}
+requested_groq_model = os.environ.get("GROQ_MODEL", DEFAULT_GROQ_MODEL).strip() or DEFAULT_GROQ_MODEL
+GROQ_MODEL = (
+    requested_groq_model
+    if requested_groq_model in STRICT_SCHEMA_GROQ_MODELS
+    else DEFAULT_GROQ_MODEL
+)
+GROQ_MODEL_OVERRIDE_IGNORED = requested_groq_model != GROQ_MODEL
+GROQ_REQUEST_TIMEOUT_SECONDS = 10.0
+groq_client = (
+    Groq(
+        api_key=api_key,
+        timeout=GROQ_REQUEST_TIMEOUT_SECONDS,
+        max_retries=1,
+    )
+    if api_key
+    else None
+)
 
 # --------------------------------------------------------------------------------------
 # POST-PROCESSING / SAFETY LAYER
@@ -36,13 +56,169 @@ TORQUE_MIN, TORQUE_MAX = -150.0, 150.0
 STABILITY_MIN, STABILITY_MAX = 0.0, 100.0
 COM_Y_MIN, COM_Y_MAX = -0.6, 0.3
 COM_XZ_MIN, COM_XZ_MAX = -0.3, 0.3
+PELVIC_PITCH_MIN, PELVIC_PITCH_MAX = -0.35, 0.35
+PELVIC_ROLL_MIN, PELVIC_ROLL_MAX = -0.3, 0.3
 
-VALID_MOVEMENT_STATES = {"idle", "walk", "run", "crouch", "jump", "climb", "sidestep", "brace"}
+VALID_MOVEMENT_STATES = {"idle", "walk", "run", "crouch", "jump", "climb", "sidestep", "brace", "slide"}
 VALID_OBSTACLE_ACTIONS = {
-    "none", "jump", "climb", "crouch", "sidestep_left", "sidestep_right", "push_through", "brace"
+    "none", "jump", "climb", "crouch", "sidestep_left", "sidestep_right", "push_through", "brace", "slide"
 }
 VALID_ROTATION_TURNS = {"clockwise", "counterclockwise", "none"}
 VALID_FALL_DIRECTIONS = {"forward", "backward", "left", "right", "none"}
+VALID_TERRAINS = {"flat", "ice", "rubble", "mud", "volcanic", "snow", "collapsing"}
+VALID_OBSTACLE_TYPES = {"boulder", "crevice", "ice_patch", "debris"}
+OBSTACLE_CLEAR_ACTIONS = {
+    "boulder": {"jump", "climb"},
+    "crevice": {"jump"},
+    "ice_patch": {"crouch", "sidestep_left", "sidestep_right", "slide"},
+    "debris": {"climb", "sidestep_left", "sidestep_right", "push_through", "slide"},
+}
+ACTION_MOVEMENT_STATES = {
+    "jump": "jump",
+    "climb": "climb",
+    "crouch": "crouch",
+    "sidestep_left": "sidestep",
+    "sidestep_right": "sidestep",
+    "push_through": "brace",
+    "slide": "slide",
+}
+
+KINEMATIC_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "movement_state": {"type": "string", "enum": sorted(VALID_MOVEMENT_STATES)},
+        "velocity": {"type": "number", "minimum": VELOCITY_MIN, "maximum": VELOCITY_MAX},
+        "center_of_mass_shift": {
+            "type": "object",
+            "properties": {
+                "x": {"type": "number", "minimum": COM_XZ_MIN, "maximum": COM_XZ_MAX},
+                "y": {"type": "number", "minimum": COM_Y_MIN, "maximum": COM_Y_MAX},
+                "z": {"type": "number", "minimum": COM_XZ_MIN, "maximum": COM_XZ_MAX},
+            },
+            "required": ["x", "y", "z"],
+            "additionalProperties": False,
+        },
+        "step_frequency": {
+            "type": "number",
+            "minimum": STEP_FREQUENCY_MIN,
+            "maximum": STEP_FREQUENCY_MAX,
+        },
+        "target_pelvic_quaternion": {
+            "type": "object",
+            "properties": {
+                "w": {"type": "number", "minimum": -1.0, "maximum": 1.0},
+                "x": {"type": "number", "minimum": -1.0, "maximum": 1.0},
+                "y": {"type": "number", "minimum": -1.0, "maximum": 1.0},
+                "z": {"type": "number", "minimum": -1.0, "maximum": 1.0},
+            },
+            "required": ["w", "x", "y", "z"],
+            "additionalProperties": False,
+        },
+        "calculated_capture_point": {
+            "type": "object",
+            "properties": {
+                "x": {"type": "number", "minimum": CAPTURE_X_MIN, "maximum": CAPTURE_X_MAX},
+                "z": {"type": "number", "minimum": CAPTURE_Z_MIN, "maximum": CAPTURE_Z_MAX},
+            },
+            "required": ["x", "z"],
+            "additionalProperties": False,
+        },
+        "torque_compensation": {
+            "type": "object",
+            "properties": {
+                "ankle": {"type": "number", "minimum": TORQUE_MIN, "maximum": TORQUE_MAX},
+                "knee": {"type": "number", "minimum": TORQUE_MIN, "maximum": TORQUE_MAX},
+                "waist": {"type": "number", "minimum": TORQUE_MIN, "maximum": TORQUE_MAX},
+            },
+            "required": ["ankle", "knee", "waist"],
+            "additionalProperties": False,
+        },
+        "stability_projection": {
+            "type": "number",
+            "minimum": STABILITY_MIN,
+            "maximum": STABILITY_MAX,
+        },
+        "obstacle_action": {"type": "string", "enum": sorted(VALID_OBSTACLE_ACTIONS)},
+        "lateral_shift": {
+            "type": "number",
+            "minimum": LATERAL_SHIFT_MIN,
+            "maximum": LATERAL_SHIFT_MAX,
+        },
+        "rotation": {
+            "type": "object",
+            "properties": {
+                "turn": {"type": "string", "enum": sorted(VALID_ROTATION_TURNS)},
+                "angle_degrees": {
+                    "type": "number",
+                    "minimum": ROTATION_ANGLE_MIN,
+                    "maximum": ROTATION_ANGLE_MAX,
+                },
+            },
+            "required": ["turn", "angle_degrees"],
+            "additionalProperties": False,
+        },
+        "trigger_fall": {"type": "boolean"},
+        "fall_direction": {"type": "string", "enum": sorted(VALID_FALL_DIRECTIONS)},
+        "biomechanical_rationale": {"type": "string"},
+    },
+    "required": [
+        "movement_state",
+        "velocity",
+        "center_of_mass_shift",
+        "step_frequency",
+        "target_pelvic_quaternion",
+        "calculated_capture_point",
+        "torque_compensation",
+        "stability_projection",
+        "obstacle_action",
+        "lateral_shift",
+        "rotation",
+        "trigger_fall",
+        "fall_direction",
+        "biomechanical_rationale",
+    ],
+    "additionalProperties": False,
+}
+
+KINEMATIC_SYSTEM_PROMPT = """
+You are TerraWalk's stateless high-level kinematic controller. Convert only the current
+operator command and telemetry snapshot into the enforced response schema. Return no
+conversation or markdown.
+
+Continuity:
+- Treat every request independently. Never carry a hazard or stopped state from an earlier call.
+- After clearing a hazard, keep positive forward velocity unless the command explicitly says stop,
+  idle, hold, or brace.
+- If wording is ambiguous, choose a calm walk near 0.8 m/s with an upright pelvis; when a hazard is
+  active and the command does not address it, brace without clearing it.
+
+Hazards:
+- boulder: jump or climb.
+- crevice: jump.
+- ice_patch: crouch, sidestep_left, sidestep_right, or slide.
+- debris: climb, sidestep_left, sidestep_right, push_through, or slide.
+- brace never clears a hazard. With no active hazard, obstacle_action must be none.
+- "walk/go around the obstacle" means a 45-degree walking detour (clockwise unless left is stated),
+  not a 180-degree reversal. "turn/spin around" means 180 degrees.
+- Jump and slide may also be standalone movement states when there is no hazard.
+
+Fall commands:
+- trigger_fall is true only for an explicit request to fall, collapse, topple, faint, lie down, or
+  play dead. Choose the stated direction or forward by default. Then use brace, zero velocity,
+  obstacle_action none, and no rotation. Otherwise trigger_fall is false and fall_direction is none.
+
+Pelvic SIP:
+- The quaternion is command posture only; never encode terrain incline or arbitrary yaw. The browser
+  measures terrain slope separately. Idle and steady walking are upright. Running, climbing, sliding,
+  and pushing may use a modest negative pitch. Roll is allowed only for a sidestep.
+- Choose pitch p in [-0.35, 0.35] radians and roll r in [-0.3, 0.3], then output
+  w=cos(p/2)cos(r/2), x=sin(p/2)cos(r/2), y=sin(p/2)sin(r/2), z=cos(p/2)sin(r/2).
+- Project the capture point in the robot frame: x is lateral [-0.3, 0.3] m and z is forward
+  [-0.1, 0.35] m. Faster motion projects farther forward; idle/brace stays near zero.
+
+Use physically calm values inside the schema bounds. lateral_shift is 1-2 m only for sidesteps and
+zero otherwise. rotation angle is zero when turn is none. Keep the rationale concise.
+""".strip()
 
 
 def _safe_float(value, default=0.0):
@@ -59,20 +235,151 @@ def _clip(value, lo, hi):
     return max(lo, min(hi, value))
 
 
-def sanitize_kinematic_matrix(matrix):
+def _canonicalize_pelvic_quaternion(quat, movement_state, obstacle_action):
+    """Normalizes the model quaternion, removes unsupported yaw/twist, clamps the
+    command-driven SIP pitch/roll, and rebuilds the exact canonical quaternion the
+    browser expects. Terrain compensation is intentionally excluded because the
+    client measures the real local slope independently every frame."""
+    if not isinstance(quat, dict):
+        quat = {}
+
+    qw = _clip(_safe_float(quat.get("w"), 1.0), -1.0, 1.0)
+    qx = _clip(_safe_float(quat.get("x"), 0.0), -1.0, 1.0)
+    qy = _clip(_safe_float(quat.get("y"), 0.0), -1.0, 1.0)
+    qz = _clip(_safe_float(quat.get("z"), 0.0), -1.0, 1.0)
+
+    magnitude = math.sqrt(qw * qw + qx * qx + qy * qy + qz * qz)
+    if magnitude < 1e-6:
+        qw, qx, qy, qz = 1.0, 0.0, 0.0, 0.0
+    else:
+        qw, qx, qy, qz = qw / magnitude, qx / magnitude, qy / magnitude, qz / magnitude
+
+    # Remove rotation around the vertical Y axis with a swing/twist decomposition.
+    # This prevents a pure (or near-180-degree) hallucinated yaw from being
+    # misinterpreted as a large pitch by the Euler extraction below.
+    twist_magnitude = math.sqrt(qw * qw + qy * qy)
+    if twist_magnitude >= 1e-6:
+        twist_w = qw / twist_magnitude
+        twist_y = qy / twist_magnitude
+        swing_w = qw * twist_w + qy * twist_y
+        swing_x = qx * twist_w + qz * twist_y
+        swing_y = qy * twist_w - qw * twist_y
+        swing_z = qz * twist_w - qx * twist_y
+        qw, qx, qy, qz = swing_w, swing_x, swing_y, swing_z
+        swing_magnitude = math.sqrt(qw * qw + qx * qx + qy * qy + qz * qz)
+        if swing_magnitude >= 1e-6:
+            qw, qx, qy, qz = (
+                qw / swing_magnitude,
+                qx / swing_magnitude,
+                qy / swing_magnitude,
+                qz / swing_magnitude,
+            )
+
+    # The supported posture is Rz(roll) * Rx(pitch). Recover only those axes,
+    # clamp them by movement state, then rebuild an exact canonical quaternion.
+    pitch = math.atan2(2.0 * (qy * qz + qx * qw), 1.0 - 2.0 * (qx * qx + qy * qy))
+    roll = math.atan2(2.0 * (qx * qy + qz * qw), 1.0 - 2.0 * (qy * qy + qz * qz))
+    pitch = _clip(pitch, PELVIC_PITCH_MIN, PELVIC_PITCH_MAX)
+    roll = _clip(roll, PELVIC_ROLL_MIN, PELVIC_ROLL_MAX)
+
+    state_pitch_ranges = {
+        "idle": (0.0, 0.0),
+        "walk": (0.0, 0.0),
+        "run": (-0.24, 0.04),
+        "crouch": (-0.08, 0.15),
+        "jump": (-0.22, 0.08),
+        "climb": (-0.30, 0.02),
+        "sidestep": (0.0, 0.0),
+        "brace": (-0.04, 0.18),
+        "slide": (-0.28, 0.02),
+    }
+    pitch_lo, pitch_hi = state_pitch_ranges.get(movement_state, (-0.04, 0.04))
+
+    if obstacle_action in {"climb", "push_through"}:
+        pitch_lo, pitch_hi = -0.30, 0.02
+    elif obstacle_action == "brace":
+        pitch_lo, pitch_hi = -0.04, 0.18
+
+    pitch = _clip(pitch, pitch_lo, pitch_hi)
+    if abs(pitch) < 0.01:
+        pitch = 0.0
+
+    if movement_state == "sidestep" or obstacle_action in {"sidestep_left", "sidestep_right"}:
+        roll = _clip(roll, -0.24, 0.24)
+        if abs(roll) < 0.01:
+            roll = 0.0
+    else:
+        # Random lateral pelvis tilt on flat ground came from allowing arbitrary
+        # model roll in states where no sideways maneuver exists.
+        roll = 0.0
+
+    cp = math.cos(pitch / 2.0)
+    sp = math.sin(pitch / 2.0)
+    cr = math.cos(roll / 2.0)
+    sr = math.sin(roll / 2.0)
+    return {
+        "w": cp * cr,
+        "x": sp * cr,
+        "y": sp * sr,
+        "z": cp * sr,
+    }
+
+
+def sanitize_kinematic_matrix(matrix, obstacle_type=None):
     """Post-processes the raw JSON object returned by the Kinematic Brain: clips every
     numeric field into its physically valid range, drops/repairs malformed nested
-    objects, and falls back to safe defaults for invalid or missing enum values. This
-    runs on every response before it is ever returned to the client."""
+    objects, canonicalizes the pelvic quaternion, and falls back to safe defaults for
+    invalid or missing enum values. This runs before every response reaches the client."""
     if not isinstance(matrix, dict):
         matrix = {}
 
     sanitized = {}
 
     movement_state = matrix.get("movement_state")
-    sanitized["movement_state"] = movement_state if movement_state in VALID_MOVEMENT_STATES else "idle"
+    movement_state = movement_state if movement_state in VALID_MOVEMENT_STATES else "idle"
 
-    sanitized["velocity"] = _clip(_safe_float(matrix.get("velocity"), 0.0), VELOCITY_MIN, VELOCITY_MAX)
+    obstacle_action = matrix.get("obstacle_action")
+    obstacle_action = obstacle_action if obstacle_action in VALID_OBSTACLE_ACTIONS else "none"
+    if obstacle_type not in VALID_OBSTACLE_TYPES:
+        obstacle_type = None
+        obstacle_action = "none"
+
+    trigger_fall = matrix.get("trigger_fall") is True
+    valid_clear_action = bool(
+        obstacle_type and obstacle_action in OBSTACLE_CLEAR_ACTIONS.get(obstacle_type, set())
+    )
+    if trigger_fall:
+        movement_state = "brace"
+        obstacle_action = "none"
+        valid_clear_action = False
+    elif valid_clear_action:
+        movement_state = ACTION_MOVEMENT_STATES[obstacle_action]
+    elif obstacle_action == "brace":
+        movement_state = "brace"
+
+    sanitized["movement_state"] = movement_state
+    sanitized["obstacle_action"] = obstacle_action
+
+    velocity = _clip(_safe_float(matrix.get("velocity"), 0.0), VELOCITY_MIN, VELOCITY_MAX)
+    step_frequency = _clip(
+        _safe_float(matrix.get("step_frequency"), STEP_FREQUENCY_MIN),
+        STEP_FREQUENCY_MIN,
+        STEP_FREQUENCY_MAX,
+    )
+    if trigger_fall or (movement_state in {"idle", "brace"} and obstacle_action != "push_through"):
+        velocity = 0.0
+    elif valid_clear_action:
+        if obstacle_action == "crouch":
+            minimum_velocity = 0.35
+        elif obstacle_action.startswith("sidestep"):
+            minimum_velocity = 0.6
+        else:
+            minimum_velocity = 1.2
+        velocity = max(velocity, minimum_velocity)
+        step_frequency = max(step_frequency, 1.4)
+
+    sanitized["velocity"] = velocity
+    sanitized["step_frequency"] = step_frequency
 
     com_shift = matrix.get("center_of_mass_shift")
     if not isinstance(com_shift, dict):
@@ -83,26 +390,9 @@ def sanitize_kinematic_matrix(matrix):
         "z": _clip(_safe_float(com_shift.get("z"), 0.0), COM_XZ_MIN, COM_XZ_MAX),
     }
 
-    sanitized["step_frequency"] = _clip(
-        _safe_float(matrix.get("step_frequency"), STEP_FREQUENCY_MIN), STEP_FREQUENCY_MIN, STEP_FREQUENCY_MAX
+    sanitized["target_pelvic_quaternion"] = _canonicalize_pelvic_quaternion(
+        matrix.get("target_pelvic_quaternion"), movement_state, obstacle_action
     )
-
-    # Target pelvic quaternion: clip each component individually first (guards against a
-    # wildly out-of-range hallucinated number), then re-normalize so the client always
-    # receives a mathematically valid unit quaternion, never a raw/malformed one.
-    quat = matrix.get("target_pelvic_quaternion")
-    if not isinstance(quat, dict):
-        quat = {}
-    qw = _clip(_safe_float(quat.get("w"), 1.0), -1.0, 1.0)
-    qx = _clip(_safe_float(quat.get("x"), 0.0), -1.0, 1.0)
-    qy = _clip(_safe_float(quat.get("y"), 0.0), -1.0, 1.0)
-    qz = _clip(_safe_float(quat.get("z"), 0.0), -1.0, 1.0)
-    magnitude = math.sqrt(qw * qw + qx * qx + qy * qy + qz * qz)
-    if magnitude < 1e-6:
-        qw, qx, qy, qz = 1.0, 0.0, 0.0, 0.0
-    else:
-        qw, qx, qy, qz = qw / magnitude, qx / magnitude, qy / magnitude, qz / magnitude
-    sanitized["target_pelvic_quaternion"] = {"w": qw, "x": qx, "y": qy, "z": qz}
 
     capture = matrix.get("calculated_capture_point")
     if not isinstance(capture, dict):
@@ -125,12 +415,13 @@ def sanitize_kinematic_matrix(matrix):
         _safe_float(matrix.get("stability_projection"), 90.0), STABILITY_MIN, STABILITY_MAX
     )
 
-    obstacle_action = matrix.get("obstacle_action")
-    sanitized["obstacle_action"] = obstacle_action if obstacle_action in VALID_OBSTACLE_ACTIONS else "none"
-
-    sanitized["lateral_shift"] = _clip(
-        _safe_float(matrix.get("lateral_shift"), 0.0), LATERAL_SHIFT_MIN, LATERAL_SHIFT_MAX
-    )
+    if obstacle_action in {"sidestep_left", "sidestep_right"}:
+        lateral_shift = _clip(
+            _safe_float(matrix.get("lateral_shift"), 1.4), 1.0, LATERAL_SHIFT_MAX
+        )
+    else:
+        lateral_shift = 0.0
+    sanitized["lateral_shift"] = lateral_shift
 
     rotation = matrix.get("rotation")
     if not isinstance(rotation, dict):
@@ -142,8 +433,6 @@ def sanitize_kinematic_matrix(matrix):
         angle_degrees = 0.0
     sanitized["rotation"] = {"turn": turn, "angle_degrees": angle_degrees}
 
-    # Operator-commanded fall (independent of hazard/terrain state).
-    trigger_fall = matrix.get("trigger_fall") is True
     sanitized["trigger_fall"] = trigger_fall
 
     fall_direction = matrix.get("fall_direction")
@@ -158,13 +447,232 @@ def sanitize_kinematic_matrix(matrix):
         rationale if isinstance(rationale, str) and rationale.strip() else "Kinematic adjustment computed."
     )
 
-    # joint_angles is not part of the schema requested from the model below, but the
-    # client still defensively reads it if present. Pass it through untouched rather
-    # than dropping it, since it falls outside the sanitized numeric contract above.
     if isinstance(matrix.get("joint_angles"), dict):
         sanitized["joint_angles"] = matrix["joint_angles"]
 
     return sanitized
+
+
+def _contains_any_phrase(text, phrases):
+    return any(re.search(rf"\b{re.escape(phrase)}\b", text) for phrase in phrases)
+
+
+def _posture_quaternion(pitch=0.0, roll=0.0):
+    cp = math.cos(pitch / 2.0)
+    sp = math.sin(pitch / 2.0)
+    cr = math.cos(roll / 2.0)
+    sr = math.sin(roll / 2.0)
+    return {
+        "w": cp * cr,
+        "x": sp * cr,
+        "y": sp * sr,
+        "z": cp * sr,
+    }
+
+
+def build_deterministic_kinematic_matrix(command, terrain, friction, angle, obstacle):
+    """Provides a safe, stateless traversal controller when Groq is temporarily
+    unavailable or a deployment is still running an incompatible provider
+    configuration. It intentionally covers the same command/action vocabulary as
+    the model prompt so a provider failure never leaves the robot frozen."""
+    text = command.lower().strip()
+    obstacle_type = obstacle.get("type") if isinstance(obstacle, dict) else None
+    explicit_stop = _contains_any_phrase(
+        text,
+        ("stop", "halt", "hold", "wait", "freeze", "idle", "stand still"),
+    )
+    explicit_fall = (
+        _contains_any_phrase(
+            text,
+            ("fall", "collapse", "topple", "faint", "lie down", "play dead"),
+        )
+        and "do not fall" not in text
+        and "don't fall" not in text
+    )
+
+    turn = "none"
+    turn_angle = 0.0
+    if _contains_any_phrase(text, ("turn around", "spin around", "reverse direction")):
+        turn = "clockwise"
+        turn_angle = 180.0
+    elif "turn left" in text or "go left" in text:
+        turn = "counterclockwise"
+        turn_angle = 45.0
+    elif "turn right" in text or "go right" in text or "go around" in text or "walk around" in text:
+        turn = "clockwise"
+        turn_angle = 45.0
+
+    fall_direction = "none"
+    if explicit_fall:
+        if "back" in text:
+            fall_direction = "backward"
+        elif "left" in text:
+            fall_direction = "left"
+        elif "right" in text:
+            fall_direction = "right"
+        else:
+            fall_direction = "forward"
+
+    obstacle_action = "none"
+    movement_state = "walk"
+    velocity = 0.8
+    step_frequency = 1.5
+    lateral_shift = 0.0
+    pitch = 0.0
+    roll = 0.0
+
+    if explicit_fall:
+        movement_state = "brace"
+        velocity = 0.0
+        step_frequency = STEP_FREQUENCY_MIN
+        turn = "none"
+        turn_angle = 0.0
+    elif explicit_stop:
+        movement_state = "brace" if obstacle_type else "idle"
+        obstacle_action = "brace" if obstacle_type else "none"
+        velocity = 0.0
+        step_frequency = STEP_FREQUENCY_MIN
+    elif obstacle_type == "boulder":
+        obstacle_action = "climb" if _contains_any_phrase(text, ("climb", "mount", "grip", "ledge")) else "jump"
+    elif obstacle_type == "crevice":
+        obstacle_action = "jump"
+    elif obstacle_type == "ice_patch":
+        if "left" in text:
+            obstacle_action = "sidestep_left"
+        elif "right" in text:
+            obstacle_action = "sidestep_right"
+        elif "crouch" in text:
+            obstacle_action = "crouch"
+        else:
+            obstacle_action = "slide"
+    elif obstacle_type == "debris":
+        if "left" in text:
+            obstacle_action = "sidestep_left"
+        elif "right" in text or turn != "none":
+            obstacle_action = "sidestep_right"
+        elif _contains_any_phrase(text, ("push", "through", "forward")):
+            obstacle_action = "push_through"
+        elif "slide" in text:
+            obstacle_action = "slide"
+        else:
+            obstacle_action = "climb"
+    elif "run" in text or "sprint" in text:
+        movement_state = "run"
+        velocity = 1.8
+        step_frequency = 2.4
+        pitch = -0.16
+    elif "jump" in text:
+        movement_state = "jump"
+        velocity = 1.4
+        step_frequency = 2.0
+        pitch = -0.12
+    elif "slide" in text:
+        movement_state = "slide"
+        velocity = 1.3
+        step_frequency = 1.8
+        pitch = -0.2
+    elif "crouch" in text:
+        movement_state = "crouch"
+        velocity = 0.35
+        step_frequency = 1.0
+        pitch = 0.08
+    elif "sidestep" in text or "step left" in text or "step right" in text:
+        movement_state = "sidestep"
+        obstacle_action = "none"
+        velocity = 0.7
+        step_frequency = 1.5
+        lateral_shift = 1.4
+        roll = -0.16 if "left" in text else 0.16
+
+    if obstacle_action in ACTION_MOVEMENT_STATES:
+        movement_state = ACTION_MOVEMENT_STATES[obstacle_action]
+        if obstacle_action == "jump":
+            velocity, step_frequency, pitch = 1.5, 2.1, -0.12
+        elif obstacle_action == "climb":
+            velocity, step_frequency, pitch = 1.2, 2.0, -0.18
+        elif obstacle_action == "slide":
+            velocity, step_frequency, pitch = 1.3, 1.8, -0.2
+        elif obstacle_action == "crouch":
+            velocity, step_frequency, pitch = 0.4, 1.0, 0.08
+        elif obstacle_action == "push_through":
+            velocity, step_frequency, pitch = 1.2, 1.8, -0.2
+        elif obstacle_action.startswith("sidestep"):
+            velocity, step_frequency = 0.7, 1.5
+            lateral_shift = 1.4
+            roll = -0.16 if obstacle_action == "sidestep_left" else 0.16
+
+    friction_factor = _clip(friction, 0.05, 1.0)
+    stability = _clip(
+        96.0 - abs(angle) * 0.7 - (1.0 - friction_factor) * 18.0,
+        STABILITY_MIN,
+        STABILITY_MAX,
+    )
+    capture_z = 0.0 if velocity == 0 else _clip(velocity * 0.11, CAPTURE_Z_MIN, CAPTURE_Z_MAX)
+    capture_x = -0.16 if obstacle_action == "sidestep_left" else 0.16 if obstacle_action == "sidestep_right" else 0.0
+
+    matrix = {
+        "movement_state": movement_state,
+        "velocity": velocity,
+        "center_of_mass_shift": {
+            "x": capture_x * 0.5,
+            "y": -0.18 if movement_state in {"crouch", "slide"} else 0.06 if movement_state == "climb" else 0.0,
+            "z": min(capture_z, 0.2),
+        },
+        "step_frequency": step_frequency,
+        "target_pelvic_quaternion": _posture_quaternion(pitch, roll),
+        "calculated_capture_point": {"x": capture_x, "z": capture_z},
+        "torque_compensation": {
+            "ankle": _clip(angle * -1.2, TORQUE_MIN, TORQUE_MAX),
+            "knee": 22.0 if movement_state in {"jump", "climb", "crouch", "slide"} else 8.0,
+            "waist": _clip(pitch * -90.0, TORQUE_MIN, TORQUE_MAX),
+        },
+        "stability_projection": stability,
+        "obstacle_action": obstacle_action,
+        "lateral_shift": lateral_shift,
+        "rotation": {"turn": turn, "angle_degrees": turn_angle},
+        "trigger_fall": explicit_fall,
+        "fall_direction": fall_direction,
+        "biomechanical_rationale": (
+            "Provider fallback selected a safe, deterministic maneuver for the current telemetry snapshot."
+        ),
+    }
+    return sanitize_kinematic_matrix(matrix, obstacle_type)
+
+
+def _provider_failure_metadata(error):
+    error_name = type(error).__name__
+    provider_status = getattr(error, "status_code", None)
+
+    if provider_status == 429 or error_name == "RateLimitError":
+        return 429, "provider_rate_limited", "Kinematic Brain rate limit reached. Wait briefly and retry the command."
+    if provider_status in {401, 403} or error_name in {"AuthenticationError", "PermissionDeniedError"}:
+        return 502, "provider_authentication_failed", "Groq rejected the configured API credentials."
+    if provider_status == 404 or error_name == "NotFoundError":
+        return 502, "provider_model_unavailable", "The configured Groq model is unavailable."
+    if provider_status in {400, 422} or error_name in {"BadRequestError", "UnprocessableEntityError", "TypeError"}:
+        return 502, "provider_request_rejected", "Groq rejected the model request configuration."
+    if error_name in {"APITimeoutError", "TimeoutException", "ReadTimeout"}:
+        return 504, "provider_timeout", "Kinematic Brain inference timed out. Please retry the command."
+    if error_name in {"APIConnectionError", "ConnectError", "ConnectionError"}:
+        return 502, "provider_connection_failed", "Could not connect to the Kinematic Brain provider."
+    if provider_status and provider_status >= 500:
+        return 502, "provider_unavailable", "Groq is temporarily unavailable."
+    if isinstance(error, (json.JSONDecodeError, ValueError)):
+        return 502, "invalid_provider_response", "Kinematic Brain returned an invalid response."
+    return 502, "provider_error", "Kinematic Brain request failed."
+
+
+def _provider_error_response(error, request_id=None, fallback_message="Kinematic Brain request failed."):
+    """Converts provider/network failures into stable JSON errors without leaking credentials or internals."""
+    status_code, error_code, message = _provider_failure_metadata(error)
+    if error_code == "provider_error":
+        message = fallback_message
+
+    app.logger.exception("Groq request failed [%s]", error_code)
+    payload = {"error": message, "error_code": error_code}
+    if request_id is not None:
+        payload["request_id"] = request_id
+    return jsonify(payload), status_code
 
 
 @app.route('/')
@@ -184,171 +692,134 @@ def health_check():
     return jsonify({
         "status": "online",
         "engine": "TerraWalk AI Kinematic System",
+        "model": GROQ_MODEL,
+        "groq_configured": has_api_key,
         "groq_auth_established": has_api_key,
+        "groq_sdk_version": getattr(groq, "__version__", "unknown"),
+        "strict_schema_compatible": GROQ_MODEL in STRICT_SCHEMA_GROQ_MODELS,
+        "model_override_ignored": GROQ_MODEL_OVERRIDE_IGNORED,
+        "deterministic_fallback_available": True,
         "supabase_configured": has_supabase
     })
 
 @app.route('/api/traverse', methods=['POST'])
 def traverse():
     """Maps traversal prompts and environmental variables to the Groq High-Level Kinematic Brain."""
-    if not groq_client:
-        return jsonify({
-            "error": "Groq client uninitialized. Please confirm your GROQ_API_KEY environment configuration mapping."
-        }), 500
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "Traversal request body must be a JSON object."}), 400
 
-    try:
-        data = request.get_json() or {}
-        command = data.get("command", "Maintain standard balance stance")
-        terrain = data.get("terrain", "flat")
-        friction = data.get("friction", 0.5)
-        angle = data.get("angle", 0)
-        obstacle = data.get("obstacle")  # {"type": "boulder", "distance": 2.3} or None
+    raw_request_id = data.get("request_id")
+    request_id = str(raw_request_id)[:80] if raw_request_id is not None else None
 
-        # Structure strict system instructions forcing explicit JSON output schemas with movement controls
-        system_prompt = (
-            "You are the High-Level Kinematic Brain of a sophisticated humanoid robot operating in extreme conditions.\n"
-            "Analyze the environment telemetry, any active hazard directly ahead, and the operator's command, then compute\n"
-            "the balance adjustment matrices. You must return exclusively a valid JSON object matching the exact\n"
-            "specification schema detailed below. Do not output markdown formatting blocks, prefixes, or conversational\n"
-            "notes. Output raw, clean JSON text.\n\n"
-            "HAZARD RESPONSE RULES:\n"
-            "- If an active hazard is present, set obstacle_action to the action the operator's command actually requests.\n"
-            "- Valid obstacle_action values and what they mean:\n"
-            "  'jump'          -> leap over the hazard (clears boulder or crevice)\n"
-            "  'climb'         -> climb over/through the hazard (clears boulder or debris)\n"
-            "  'crouch'        -> lower center of mass and creep across (clears ice_patch)\n"
-            "  'sidestep_left' -> shift laterally left around the hazard (clears ice_patch or debris)\n"
-            "  'sidestep_right'-> shift laterally right around the hazard (clears ice_patch or debris)\n"
-            "  'push_through'  -> brace and force through (use only if command explicitly says push/force/tackle through)\n"
-            "  'brace'         -> stop and hold stance defensively, does not clear the hazard\n"
-            "  'none'          -> command does not address the hazard at all\n"
-            "- If there is no active hazard, obstacle_action must always be 'none'.\n"
-            "- lateral_shift is only meaningful for sidestep actions: meters to shift sideways, typically between 1.0\n"
-            "  and 2.0.\n\n"
-            "ROTATION / DETOUR RULES:\n"
-            "- If the command explicitly asks the robot to turn or rotate (e.g. 'turn clockwise', 'rotate left 45\n"
-            "  degrees', 'turn around', 'spin right'), set rotation.turn to 'clockwise' or 'counterclockwise' and\n"
-            "  rotation.angle_degrees to the requested amount. Default to 90 degrees if no amount is given, or 180\n"
-            "  degrees for 'turn around'/'spin around'. 'clockwise'/'right' turns map to clockwise; 'counterclockwise'/\n"
-            "  'left' turns map to counterclockwise.\n"
-            "- Turning is a valid way for the operator to detour and route around a hazard instead of tackling it\n"
-            "  head-on. If the command does not request turning, set rotation.turn to 'none' and angle_degrees to 0.\n\n"
-            "FALL COMMAND RULES:\n"
-            "- If the operator's command explicitly asks the robot to fall down, collapse, drop, topple over, faint,\n"
-            "  or lie down/play dead on its own initiative (e.g. 'fall down', 'let yourself fall', 'collapse to the\n"
-            "  ground', 'topple over', 'play dead') -- and this is NOT a reaction to the hazard telemetry above --\n"
-            "  set trigger_fall to true. Otherwise trigger_fall must always be false.\n"
-            "- When trigger_fall is true: set fall_direction to 'forward', 'backward', 'left', or 'right' if the\n"
-            "  command names a direction (e.g. 'fall forward' -> forward, 'fall backwards' -> backward, 'collapse to\n"
-            "  your left' -> left); default fall_direction to 'forward' if no direction is given. Also set\n"
-            "  movement_state to 'brace', velocity to 0, step_frequency to 0.4, obstacle_action to 'none', and\n"
-            "  rotation.turn to 'none' -- this is a deliberate operator-triggered shutdown, independent of any hazard\n"
-            "  or terrain state.\n"
-            "- When trigger_fall is false, fall_direction must always be 'none'.\n\n"
-            "SPHERICAL INVERTED PENDULUM (SIP) BALANCE RULES:\n"
-            "- The torso/pelvis is no longer balanced with separate joint angles. It is modeled as a 3D spherical\n"
-            "  inverted pendulum: you must output a single balance orientation as a unit quaternion\n"
-            "  (target_pelvic_quaternion) plus a 2D ground point (calculated_capture_point) representing the target\n"
-            "  Zero-Moment Point (ZMP) the pendulum must project onto to stay stable.\n"
-            "- Step 1: choose a pitch angle p, in radians, HARD CEILING -0.35 to 0.35 -- never exceed this range even\n"
-            "  for extreme commands (forward/back lean). Negative p = leaning forward (running, climbing,\n"
-            "  accelerating, pushing through). Positive p = leaning backward (braking, bracing, standing up out of a\n"
-            "  crouch). Near 0 for idle or a steady flat-ground walk.\n"
-            "- Step 2: choose a roll angle r, in radians, HARD CEILING -0.3 to 0.3 -- never exceed this range even for\n"
-            "  extreme commands (side-to-side lean). Driven only by sidestep_left/sidestep_right actions (lean into\n"
-            "  the direction of the sidestep). Near 0 otherwise -- do NOT use the Ground Incline/Tilt telemetry to\n"
-            "  set this; a separate client-side balance system continuously measures the actual ground slope\n"
-            "  under the robot's feet (which this telemetry alone cannot capture, since it doesn't account for\n"
-            "  which way the robot is currently facing) and applies its own slope-compensation lean every frame.\n"
-            "- Step 3: combine p and r into the unit quaternion with:\n"
-            "    w = cos(p/2) * cos(r/2)\n"
-            "    x = sin(p/2) * cos(r/2)\n"
-            "    y = sin(p/2) * sin(r/2)\n"
-            "    z = cos(p/2) * sin(r/2)\n"
-            "  These four values already form a normalized quaternion (w^2+x^2+y^2+z^2 = 1) when p and r are in\n"
-            "  radians - output them directly as target_pelvic_quaternion.\n"
-            "- calculated_capture_point.x and .z are the target ZMP in meters, in the robot's own local ground frame\n"
-            "  relative to the midpoint of its feet:\n"
-            "    z: positive projects the capture point forward (ahead, the direction the robot is facing), negative\n"
-            "       projects it backward. Scale roughly with velocity/step_frequency - faster movement projects the\n"
-            "       point further forward (0.0 to 0.35); idle or braced stays near 0. HARD CEILING -0.1 to 0.35.\n"
-            "    x: positive shifts the capture point toward the robot's right, negative toward its left. Use larger\n"
-            "       magnitudes (0.1 to 0.3) during sidestep_left/sidestep_right or a strong lateral incline, near 0\n"
-            "       otherwise. HARD CEILING -0.3 to 0.3.\n\n"
-            "HARD NUMERIC CONSTRAINTS (never exceed these, regardless of how extreme the command is -- if your own\n"
-            "internal estimate for any of these falls outside its range, clamp it to the nearest bound before writing\n"
-            "the final JSON; a server-side safety layer will also silently clip anything you miss, so staying inside\n"
-            "these ranges yourself simply produces the most physically sane result):\n"
-            "- velocity: 0.0 to 3.0 (m/s). 0 for idle/brace/held crouch, roughly 0.3-1.6 for a walk, roughly 1.6-3.0\n"
-            "  for a run.\n"
-            "- step_frequency: 0.4 to 3.0 (Hz).\n"
-            "- SIP pitch angle p: -0.35 to 0.35 radians.\n"
-            "- SIP roll angle r: -0.3 to 0.3 radians.\n"
-            "- calculated_capture_point.x: -0.3 to 0.3 meters. calculated_capture_point.z: -0.1 to 0.35 meters.\n"
-            "- lateral_shift: 1.0 to 2.0 meters (0 when not sidestepping).\n"
-            "- rotation.angle_degrees: 0 to 360.\n"
-            "- torque_compensation values (ankle/knee/waist): -150 to 150 Nm.\n"
-            "- stability_projection: 0 to 100.\n\n"
-            "JSON SCHEMA EXPECTATION:\n"
-            "{\n"
-            '  "movement_state": "idle" | "walk" | "run" | "crouch" | "jump" | "climb" | "sidestep" | "brace",\n'
-            '  "velocity": float,\n'
-            '  "center_of_mass_shift": {"x": float, "y": float, "z": float},\n'
-            '  "step_frequency": float,\n'
-            '  "target_pelvic_quaternion": {"w": float, "x": float, "y": float, "z": float},\n'
-            '  "calculated_capture_point": {"x": float, "z": float},\n'
-            '  "torque_compensation": {"ankle": float, "knee": float, "waist": float},\n'
-            '  "stability_projection": float,\n'
-            '  "obstacle_action": "none" | "jump" | "climb" | "crouch" | "sidestep_left" | "sidestep_right" | "push_through" | "brace",\n'
-            '  "lateral_shift": float,\n'
-            '  "rotation": {"turn": "clockwise" | "counterclockwise" | "none", "angle_degrees": float},\n'
-            '  "trigger_fall": boolean,\n'
-            '  "fall_direction": "forward" | "backward" | "left" | "right" | "none",\n'
-            '  "biomechanical_rationale": "string"\n'
-            "}"
-        )
+    raw_command = data.get("command", "Maintain standard balance stance")
+    command = raw_command.strip()[:1000] if isinstance(raw_command, str) else ""
+    if not command:
+        return jsonify({"error": "Traversal command must be a non-empty string.", "request_id": request_id}), 400
 
-        if obstacle and obstacle.get("type"):   
-            hazard_block = (
-                f"- Active Hazard: {obstacle.get('type')}\n"
-                f"- Distance Ahead: {obstacle.get('distance', 0):.1f} meters\n"
-                f"- The robot has HALTED in front of this hazard and is awaiting a tackling instruction.\n"
+    raw_terrain = data.get("terrain", "flat")
+    terrain = raw_terrain if raw_terrain in VALID_TERRAINS else "flat"
+    friction = _clip(_safe_float(data.get("friction"), 0.5), 0.01, 1.0)
+    angle = _clip(_safe_float(data.get("angle"), 0.0), -45.0, 45.0)
+
+    obstacle = data.get("obstacle")
+    if isinstance(obstacle, dict) and obstacle.get("type") in VALID_OBSTACLE_TYPES:
+        obstacle = {
+            "type": obstacle.get("type"),
+            "distance": _clip(_safe_float(obstacle.get("distance"), 0.0), 0.0, 50.0),
+        }
+    else:
+        obstacle = None
+
+    user_prompt = json.dumps(
+        {
+            "command": command,
+            "terrain": terrain,
+            "friction": friction,
+            "ground_angle_degrees": angle,
+            "active_hazard": obstacle,
+        },
+        separators=(",", ":"),
+    )
+
+    controller_source = "groq"
+    provider_warning = None
+    if groq_client:
+        try:
+            # Strict schema decoding keeps every response structurally valid before the
+            # defense-in-depth numerical sanitizer applies the simulation-specific rules.
+            chat_completion = groq_client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": KINEMATIC_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt}
+                ],
+                model=GROQ_MODEL,
+                temperature=0.1,
+                max_completion_tokens=700,
+                reasoning_effort="low",
+                include_reasoning=False,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "terrawalk_kinematic_matrix",
+                        "strict": True,
+                        "schema": KINEMATIC_RESPONSE_SCHEMA,
+                    },
+                },
             )
-        else:
-            hazard_block = "- Active Hazard: none (clear path ahead)\n"
 
-        user_prompt = (
-            f"ENVIRONMENT TELEMETRY MATRIX:\n"
-            f"- Terrain Profile: {terrain}\n"
-            f"- Surface Friction Index: {friction}\n"
-            f"- Ground Incline/Tilt: {angle} degrees\n\n"
-            f"HAZARD STATUS:\n"
-            f"{hazard_block}\n"
-            f"OPERATIONAL INTERACTION CRITERIA:\n"
-            f"- Traversal Intent: '{command}'"
+            response_content = chat_completion.choices[0].message.content
+            if not isinstance(response_content, str) or not response_content.strip():
+                raise ValueError("Kinematic Brain returned an empty response.")
+
+            kinematic_matrix = json.loads(response_content)
+            kinematic_matrix = sanitize_kinematic_matrix(
+                kinematic_matrix,
+                obstacle.get("type") if obstacle else None,
+            )
+        except Exception as error:
+            _, error_code, error_message = _provider_failure_metadata(error)
+            app.logger.exception(
+                "Groq traversal failed [%s]; deterministic controller engaged",
+                error_code,
+            )
+            controller_source = "deterministic_fallback"
+            provider_warning = {
+                "code": error_code,
+                "message": error_message,
+            }
+            kinematic_matrix = build_deterministic_kinematic_matrix(
+                command,
+                terrain,
+                friction,
+                angle,
+                obstacle,
+            )
+    else:
+        controller_source = "deterministic_fallback"
+        provider_warning = {
+            "code": "provider_not_configured",
+            "message": "Groq is not configured; the safe local traversal controller was used.",
+        }
+        kinematic_matrix = build_deterministic_kinematic_matrix(
+            command,
+            terrain,
+            friction,
+            angle,
+            obstacle,
         )
 
-        # Call ultra-fast Groq LLM inference architecture using Llama 3.1 parsing protocols
-        chat_completion = groq_client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            model="llama-3.1-8b-instant",
-            temperature=0.2,
-            response_format={"type": "json_object"}
-        )
-        
-        response_content = chat_completion.choices[0].message.content
-        kinematic_matrix = json.loads(response_content)
-        kinematic_matrix = sanitize_kinematic_matrix(kinematic_matrix)
-        return jsonify(kinematic_matrix)
+    kinematic_matrix["schema_version"] = "3.1"
+    kinematic_matrix["controller_source"] = controller_source
+    if provider_warning:
+        kinematic_matrix["provider_warning"] = provider_warning
+    if request_id is not None:
+        kinematic_matrix["request_id"] = request_id
 
-    except Exception as e:
-        return jsonify({
-            "error": "Failed to parse mechanical intelligence matrix.",
-            "details": str(e)
-        }), 500
+    response = jsonify(kinematic_matrix)
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["X-TerraWalk-Controller"] = controller_source
+    return response
 
 # --------------------------------------------------------------------------------------
 # ROBOT SYSTEMS ASSISTANT (Chatbot)
@@ -389,14 +860,19 @@ ROBOT_ASSISTANT_SYSTEM_PROMPT = (
     "computed per command to counteract the requested balance adjustment.\n"
     "- Stability projection: a 0-100% live confidence readout for how well the current pose is balanced.\n"
     "- Terrain adaptation: the client continuously measures the actual ground slope under the robot's feet "
-    "and blends a deterministic compensating lean into the pelvic quaternion every frame. Below 12 degrees "
-    "of tilt the robot walks normally; between 12 and 45 degrees it progressively slows down and leans into "
-    "the grade; beyond 45 degrees (MAX_RECOVERABLE_TILT) it triggers a fall/collapse animation, coming to "
-    "rest at an 84 degree lie angle, recoverable with a reboot.\n"
-    "- Hazards: a boulder or crevice can be cleared with 'jump' or 'climb'; an ice patch with 'crouch' or a "
-    "sidestep; debris with 'climb' or a sidestep. Operators can also command a turn/rotation to detour "
-    "around a hazard instead of tackling it head-on.\n"
-    "- Application stack: a Flask backend (deployed on Vercel) calls Groq's Llama 3.1 8B Instant model (the "
+    "and blends a deterministic compensating lean into the pelvic quaternion every frame. Below 10 degrees "
+    "of tilt the robot walks normally; between 10 and 32 degrees it progressively slows down and leans into "
+    "the grade. Beyond 32 degrees it first checks for a nearby climbable ledge or boulder/debris grip; when "
+    "one exists it runs the climb animation, otherwise it triggers a fall/collapse animation and comes to "
+    "rest at an 84 degree lie angle, recoverable with a reboot. Generated worlds use a safe spawn platform "
+    "and cap their initial global incline at plus/minus 18 degrees.\n"
+    "- Hazards: a boulder or crevice can be cleared with 'jump' or 'climb'; an ice patch with 'crouch', a "
+    "sidestep, or a 'slide'; debris with 'climb', a sidestep, or a 'slide'. Jump and slide each play their "
+    "own dedicated animation, and both can also be issued as standalone commands (e.g. just 'jump' or "
+    "'slide') even with no hazard present. Operators can also command a turn/rotation to detour around a "
+    "hazard instead of tackling it head-on -- phrasing like 'walk around it' or 'go around the obstacle' is "
+    "treated as a gentle detour, distinct from 'turn around', which reverses direction 180 degrees.\n"
+    "- Application stack: a Flask backend (deployed on Vercel) calls Groq's GPT-OSS 20B model (the "
     "'Kinematic Brain') to translate natural-language traversal commands into a balance/gait JSON schema "
     "every time the operator issues a command. Three.js renders the humanoid and procedural terrain client-"
     "side at interactive framerates. Supabase provides optional operator authentication.\n\n"
@@ -447,19 +923,20 @@ def robot_chat():
 
         chat_completion = groq_client.chat.completions.create(
             messages=messages,
-            model="llama-3.1-8b-instant",
+            model=GROQ_MODEL,
             temperature=0.4,
-            max_tokens=500
+            max_tokens=500,
+            reasoning_effort="low",
         )
 
         reply = chat_completion.choices[0].message.content
         return jsonify({"reply": reply})
 
-    except Exception as e:
-        return jsonify({
-            "error": "Failed to reach the TerraWalk AI Systems Assistant.",
-            "details": str(e)
-        }), 500
+    except Exception as error:
+        return _provider_error_response(
+            error,
+            fallback_message="Failed to reach the TerraWalk AI Systems Assistant.",
+        )
 
 
 # Expose app cluster instance to Vercel global runtime context
