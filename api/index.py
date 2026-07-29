@@ -10,7 +10,12 @@ from groq import Groq
 # Initialize local environment attributes if executing outside isolated production nodes
 load_dotenv()
 
-app = Flask(__name__, template_folder='../templates')
+app = Flask(
+    __name__,
+    template_folder='../templates',
+    static_folder='../public/static',
+    static_url_path='/static',
+)
 
 # Initialize Groq client securely using environment properties
 api_key = os.environ.get("GROQ_API_KEY")
