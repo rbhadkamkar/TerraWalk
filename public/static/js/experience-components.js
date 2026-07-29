@@ -664,32 +664,20 @@
                         global.requestAnimationFrame(runLenisFrame);
                 };
 
-                if (!reducedMotion && global.Lenis) {
-                    const lenisOptions = useWindowScroll
-                        ? {
-                            duration: 1.2,
-                            easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
-                            infinite: false,
-                            lerp: 0.1,
-                            smoothWheel: true,
-                            syncTouch: true,
-                            syncTouchLerp: 0.075,
-                            touchMultiplier: 2,
-                            wheelMultiplier: 1
-                        }
-                        : {
-                            content: scroller.querySelector('.scroll-stack-inner'),
-                            duration: 1.2,
-                            easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
-                            infinite: false,
-                            lerp: 0.1,
-                            smoothWheel: true,
-                            syncTouch: true,
-                            syncTouchLerp: 0.075,
-                            touchMultiplier: 2,
-                            wheelMultiplier: 1,
-                            wrapper: scroller
-                        };
+                if (!reducedMotion && global.Lenis && !useWindowScroll) {
+                    const lenisOptions = {
+                        content: scroller.querySelector('.scroll-stack-inner'),
+                        duration: 1.2,
+                        easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+                        infinite: false,
+                        lerp: 0.1,
+                        smoothWheel: true,
+                        syncTouch: true,
+                        syncTouchLerp: 0.075,
+                        touchMultiplier: 2,
+                        wheelMultiplier: 1,
+                        wrapper: scroller
+                    };
                     const lenis = new global.Lenis(lenisOptions);
                     lenis.on('scroll', handleScroll);
                     lenisRef.current = lenis;
