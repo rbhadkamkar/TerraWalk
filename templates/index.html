@@ -335,6 +335,7 @@
                                 <option value="rubble">Heavy Rubble (High Contrast Hazards)</option>
                                 <option value="mud">Mud Slide (Sinking Terrain)</option>
                                 <option value="volcanic">Volcanic Crag (Steep Fractures)</option>
+                                <option value="mountains">Mountain Range (Climbable Peaks)</option>
                                 <option value="snow">Snow Field (Soft Drift)</option>
                                 <option value="collapsing">Collapsing Ground (Unstable Voids)</option>
                             </select>
@@ -348,6 +349,9 @@
                                 Reset
                             </button>
                         </div>
+                        <button id="return-obstacle-btn" type="button" disabled class="w-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold px-3 py-2 rounded-lg uppercase tracking-wider transition-all cursor-pointer font-mono disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-emerald-500/10" title="Return to the approach position of the most recently cleared hazard without resetting progress">
+                            ↩ Return to Last Cleared Hazard
+                        </button>
 
                         <div class="flex flex-col space-y-1 pt-1">
                             <div class="flex justify-between text-[11px] font-mono">
@@ -834,12 +838,12 @@
 
     <!-- SYSTEM OVERLOAD / FALL RECOVERY MODAL -->
     <div id="fall-overlay-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/90 backdrop-blur-md hidden transition-opacity duration-300">
-        <div class="glass-panel w-full max-w-md rounded-2xl p-6 border border-rose-500/40 shadow-2xl space-y-4 text-center relative alert-pulse">
-            <div class="w-14 h-14 rounded-full bg-rose-500/20 border border-rose-500/60 flex items-center justify-center text-rose-400 font-bold text-2xl mx-auto">
+        <div id="failure-overlay-panel" class="glass-panel w-full max-w-md rounded-2xl p-6 border border-rose-500/40 shadow-2xl space-y-4 text-center relative alert-pulse">
+            <div id="failure-overlay-icon" class="w-14 h-14 rounded-full bg-rose-500/20 border border-rose-500/60 flex items-center justify-center text-rose-400 font-bold text-2xl mx-auto">
                 ⚠
             </div>
-            <h3 class="text-base font-extrabold text-rose-400 uppercase font-mono tracking-widest">System Overload</h3>
-            <p class="text-xs text-slate-300 font-mono leading-relaxed">Maximum tilt angle exceeded. Balance stabilizers offline.</p>
+            <h3 id="failure-overlay-title" class="text-base font-extrabold text-rose-400 uppercase font-mono tracking-widest">System Overload</h3>
+            <p id="failure-overlay-message" class="text-xs text-slate-300 font-mono leading-relaxed">Maximum tilt angle exceeded. Balance stabilizers offline.</p>
             <button id="reboot-btn" onclick="handleRebootRecovery()" class="w-full py-3 bg-rose-500 hover:bg-rose-400 text-slate-950 font-bold text-xs uppercase tracking-wider rounded-lg shadow-[0_0_20px_rgba(244,63,94,0.4)] transition-all">
                 Press [R] to Reboot
             </button>
@@ -1168,6 +1172,11 @@
         let robotPos = { x: 0, z: 0 };
         let currentHeading = 0, targetHeading = 0;
         const SPEED_SCALE = 1.2;
+        const HEADING_RESPONSE = 0.06;
+        const TERRAIN_SIZE = 60;
+        const TERRAIN_HALF_SIZE = TERRAIN_SIZE / 2;
+        const VOID_EDGE_MARGIN = 0.35;
+        const VOID_TRIGGER_BOUNDARY = TERRAIN_HALF_SIZE - VOID_EDGE_MARGIN;
 
         let currentHipAngle = 0, targetHipAngle = 0;
         let currentKneeAngle = 0, targetKneeAngle = 0;
@@ -1206,7 +1215,17 @@
         // (arcs up and over) and climb (steps up and over). Dips the COM down instead of raising it,
         // then eases back up to standing height at the end.
         let isSliding = false, slideStartTime = -999, slideControlRevision = -1;
+        let isTerrainAssistedSlide = false;
         const SLIDE_DURATION = 0.7, SLIDE_DROP = 0.42, SLIDE_FORWARD_SPEED = 2.1;
+        const TERRAIN_SLIDE_MIN_DURATION = 0.95;
+        const TERRAIN_SLIDE_MAX_DURATION = 1.55;
+        const TERRAIN_SLIDE_MIN_SPEED = 0.8;
+        const TERRAIN_SLIDE_MAX_SPEED = 1.45;
+        const TERRAIN_SLIDE_COOLDOWN = 1.0;
+        let activeSlideDuration = SLIDE_DURATION;
+        let activeSlideDrop = SLIDE_DROP;
+        let activeSlideForwardSpeed = SLIDE_FORWARD_SPEED;
+        let terrainSlideCooldownUntil = -999;
 
         let sidestepTimer = 0, sidestepSign = 0, sidestepControlRevision = -1;
         const SIDESTEP_SPEED = 2.0;
@@ -1259,8 +1278,17 @@
 
         // --- Fall / Recovery State Machine ---
         let isFallen = false, fallStartTime = -999;
+        let isVoided = false, voidStartTime = -999;
         let isRecovering = false, recoveryStartTime = -999;
         let fallTiltAxis = 'z', fallSign = 1;
+        let voidWorldY = 0;
+        let voidVerticalVelocity = 0;
+        let voidHorizontalVelocityX = 0;
+        let voidHorizontalVelocityZ = 0;
+        let voidEdgeAxis = 'z';
+        let voidEdgeSign = 1;
+        let voidLocalPitchFactor = 0;
+        let voidLocalRollFactor = 0;
         const COMFORTABLE_TILT = THREE.MathUtils.degToRad(10);
         const MAX_RECOVERABLE_TILT = THREE.MathUtils.degToRad(32);
         const GENERATED_ANGLE_LIMIT_DEGREES = 18;
@@ -1275,7 +1303,7 @@
         const LEDGE_MAX_LATERAL = 1.05;
         const LEDGE_FACE_MIN_ANGLE = THREE.MathUtils.degToRad(20);
         const TERRAIN_CLIMB_COOLDOWN = 1.8;
-        const LEDGE_BIOMES = new Set(['rubble', 'volcanic', 'collapsing']);
+        const LEDGE_BIOMES = new Set(['rubble', 'volcanic', 'collapsing', 'mountains']);
         const TERRAIN_LEDGE_FEATURES = {
             rubble: [
                 { id: 'rubble-shelf-a', x: 0, frontZ: -2.8, backZ: -5.9, halfWidth: 2.5, rise: 0.72, faceDepth: 0.45, rearDepth: 1.4 },
@@ -1284,6 +1312,16 @@
             volcanic: [
                 { id: 'volcanic-crag-a', x: 0, frontZ: -1.95, backZ: -5.2, halfWidth: 2.4, rise: 0.88, faceDepth: 0.45, rearDepth: 1.5 },
                 { id: 'volcanic-crag-b', x: 3.5, frontZ: -12.0, backZ: -15.0, halfWidth: 2.3, rise: 0.78, faceDepth: 0.5, rearDepth: 1.6 }
+            ],
+            mountains: [
+                { id: 'mountain-route-a', x: 0.0, frontZ: -2.0, backZ: -5.0, halfWidth: 3.0, rise: 1.05, faceDepth: 0.8, rearDepth: 1.25, innerRatio: 0.24 },
+                { id: 'mountain-route-b', x: -0.35, frontZ: -9.0, backZ: -12.0, halfWidth: 3.2, rise: 1.18, faceDepth: 0.85, rearDepth: 1.35, innerRatio: 0.22 },
+                { id: 'mountain-route-c', x: 0.45, frontZ: -16.0, backZ: -19.0, halfWidth: 3.1, rise: 1.10, faceDepth: 0.8, rearDepth: 1.3, innerRatio: 0.23 },
+                { id: 'mountain-route-d', x: -0.25, frontZ: -23.0, backZ: -26.0, halfWidth: 3.0, rise: 1.22, faceDepth: 0.9, rearDepth: 1.4, innerRatio: 0.2 },
+                { id: 'mountain-west-a', x: -7.0, frontZ: -4.5, backZ: -8.0, halfWidth: 3.4, rise: 1.35, faceDepth: 1.0, rearDepth: 1.6, innerRatio: 0.18 },
+                { id: 'mountain-east-a', x: 7.2, frontZ: -8.5, backZ: -12.0, halfWidth: 3.5, rise: 1.28, faceDepth: 0.95, rearDepth: 1.55, innerRatio: 0.2 },
+                { id: 'mountain-west-b', x: -7.5, frontZ: -15.5, backZ: -19.0, halfWidth: 3.6, rise: 1.42, faceDepth: 1.1, rearDepth: 1.7, innerRatio: 0.17 },
+                { id: 'mountain-east-b', x: 7.0, frontZ: -20.5, backZ: -24.0, halfWidth: 3.4, rise: 1.32, faceDepth: 1.0, rearDepth: 1.6, innerRatio: 0.19 }
             ]
         };
         const TERRAIN_UNSUPPORTED_DROPS = {
@@ -1298,15 +1336,32 @@
         const FALL_TARGET_ANGLE = THREE.MathUtils.degToRad(84); // resting tilt once fully collapsed
         const FALL_ANIM_DURATION = 0.8;
         const RECOVERY_ANIM_DURATION = 1.4;
+        const VOID_GRAVITY = 9.81;
+        const VOID_OVERLAY_DELAY = 1.8;
         let pendingFallOverlayTimeout = null; // holds the collapse animation before the reboot prompt appears
         let sfxAudioCtx = null; // dedicated Web Audio context for synthesized UI sound effects
 
         let obstacles = [];
         let activeObstacle = null;
+        let obstacleDetour = null;
+        let lastClearedCheckpoint = null;
+        let obstaclePathfindingEnabled = true;
+        let pathfindingGraceUntil = -999;
+        let explicitAwayResumeSpeed = 0;
         const DETECTION_RANGE = 3.2;
         const HAZARD_STOP_DISTANCE = 1.55;
         const LANE_WIDTH = 1.6;
         const CLEAR_PASS_RANGE = -1.5;
+        const DETOUR_ANGLE = THREE.MathUtils.degToRad(45);
+        const DETOUR_LATERAL_CLEARANCE = 1.45;
+        const DETOUR_PASS_MARGIN = 1.15;
+        const DETOUR_REJOIN_TOLERANCE = 0.12;
+        const DETOUR_TURN_TOLERANCE = THREE.MathUtils.degToRad(3);
+        const DETOUR_SPEED = 0.85;
+        const RETURN_FRONT_DISTANCE = 1.9;
+        const PATHFIND_HEADING_RATE = THREE.MathUtils.degToRad(42);
+        const PATHFIND_DEAD_ZONE = THREE.MathUtils.degToRad(8);
+        const MANUAL_DIRECTION_GRACE = 2.4;
         const OBSTACLE_TYPES = ['boulder', 'crevice', 'ice_patch', 'debris'];
         const OBSTACLE_CLEAR_ACTIONS = {
             boulder: ['jump', 'climb'],
@@ -1320,9 +1375,423 @@
             rubble: ['boulder', 'debris'],
             mud: ['debris', 'ice_patch'],
             volcanic: ['crevice', 'boulder'],
+            mountains: [],
             snow: ['ice_patch', 'debris'],
             collapsing: ['crevice', 'boulder']
         };
+
+        function isRobotIncapacitated() {
+            return isFallen || isVoided || isRecovering;
+        }
+
+        function normalizeHeadingAngle(angle) {
+            return Math.atan2(Math.sin(angle), Math.cos(angle));
+        }
+
+        function headingResponseForDelta(dt) {
+            const frameEquivalent = Math.max(0, Math.min(dt, 0.05)) * 60;
+            return 1 - Math.pow(1 - HEADING_RESPONSE, frameEquivalent);
+        }
+
+        function setTargetHeadingShortest(heading) {
+            targetHeading = currentHeading + normalizeHeadingAngle(heading - currentHeading);
+        }
+
+        function headingForwardVector(heading) {
+            return { x: Math.sin(heading), z: -Math.cos(heading) };
+        }
+
+        function headingRightVector(heading) {
+            return { x: Math.cos(heading), z: Math.sin(heading) };
+        }
+
+        function headingTowardPoint(x, z) {
+            return Math.atan2(x - robotPos.x, -(z - robotPos.z));
+        }
+
+        function getNextUnclearedObstacle() {
+            return obstacles.find(obstacle => !obstacle.cleared) || null;
+        }
+
+        function isWalkAroundCommand(commandText) {
+            const text = String(commandText || '').toLowerCase().trim();
+            if (/\b(?:do\s+not|don['’]?t|never)\s+(?:(?:please|try\s+to)\s+)?(?:walk|go|move|route|navigate|travel|detour)\b[^.!?\n]{0,36}\baround\b/.test(text)) {
+                return false;
+            }
+            if (/\b(?:turn|spin)\s+around\b/.test(text) || /\breverse\s+direction\b/.test(text)) {
+                return false;
+            }
+            return /\b(?:walk|go|move|route|navigate|travel|detour)\b[^.!?\n]{0,36}\baround\b/.test(text);
+        }
+
+        function explicitWorldHeadingFromCommand(commandText) {
+            const text = String(commandText || '').toLowerCase();
+            const movementPrefix = /\b(?:walk|go|move|head|travel|run|proceed)(?:\s+(?:to|toward|towards|due))?\s+/;
+            if (!movementPrefix.test(text)) return null;
+
+            const headings = [
+                { pattern: /\bnorth[\s-]?east\b/, angle: Math.PI / 4 },
+                { pattern: /\bsouth[\s-]?east\b/, angle: 3 * Math.PI / 4 },
+                { pattern: /\bsouth[\s-]?west\b/, angle: -3 * Math.PI / 4 },
+                { pattern: /\bnorth[\s-]?west\b/, angle: -Math.PI / 4 },
+                { pattern: /\bnorth\b/, angle: 0 },
+                { pattern: /\beast\b/, angle: Math.PI / 2 },
+                { pattern: /\bsouth\b/, angle: Math.PI },
+                { pattern: /\bwest\b/, angle: -Math.PI / 2 }
+            ];
+            const match = headings.find(entry => entry.pattern.test(text));
+            return match ? match.angle : null;
+        }
+
+        function commandHasDirectionalIntent(commandText) {
+            const text = String(commandText || '').toLowerCase();
+            return (
+                explicitWorldHeadingFromCommand(text) !== null ||
+                /\b(?:turn|go|move|walk|head|step)\s+(?:to\s+the\s+)?(?:left|right)\b/.test(text) ||
+                /\b(?:turn|spin)\s+around\b/.test(text) ||
+                /\b(?:reverse|backward|backwards|retreat)\b/.test(text)
+            );
+        }
+
+        function commandNegatesAwayIntent(commandText) {
+            const text = String(commandText || '').toLowerCase();
+            return /\b(?:do\s+not|don['’]?t|never)\s+(?:(?:please|try\s+to)\s+)?(?:(?:walk|go|move|head|run|back)\s+away|(?:walk|go|move)\s+backwards?|retreat|flee|escape|withdraw|avoid(?:\s+(?:the\s+)?(?:obstacle|obstacles|hazard|hazards))?|steer\s+clear(?:\s+of\s+(?:the\s+)?(?:obstacle|obstacles|hazard|hazards|them))?|(?:keep|stay)\s+away|(?:leave|exit)\s+(?:the\s+)?(?:obstacle|hazard|course|route|area)|(?:turn|spin)\s+around|reverse(?:\s+direction)?|(?:go|walk|move|head)\s+(?:to|toward|towards)\s+(?:the\s+)?(?:edge|corner|void))\b/.test(text);
+        }
+
+        function commandExplicitlyAvoidsObstacles(commandText) {
+            const text = String(commandText || '').toLowerCase();
+            if (commandNegatesAwayIntent(text)) return false;
+            return (
+                /\b(?:move|walk|go|head|run|back)\s+away\b/.test(text) ||
+                /\baway\s+from\s+(?:the\s+)?(?:obstacle|obstacles|hazard|hazards|course|route)\b/.test(text) ||
+                /\b(?:retreat|flee|escape|withdraw)\b/.test(text) ||
+                /\b(?:keep|stay)\s+away(?:\s+from\s+(?:the\s+)?(?:obstacle|obstacles|hazard|hazards|them))?\b/.test(text) ||
+                /\bavoid\s+(?:the\s+)?(?:obstacle|obstacles|hazard|hazards)\b/.test(text) ||
+                /\bsteer\s+clear\s+of\s+(?:the\s+)?(?:obstacle|obstacles|hazard|hazards|them)\b/.test(text) ||
+                /\b(?:walk|go|move)\s+backwards?\b/.test(text) ||
+                /\b(?:turn|spin)\s+around\b/.test(text) ||
+                /\breverse(?:\s+direction)?\b/.test(text) ||
+                /\b(?:leave|exit)\s+(?:the\s+)?(?:obstacle|hazard|course|route|area)\b/.test(text) ||
+                /\b(?:go|walk|move|head)\s+(?:to|toward|towards)\s+(?:the\s+)?(?:edge|corner|void)\b/.test(text) ||
+                /\bdo\s+not\s+(?:approach|go\s+toward|move\s+toward|walk\s+toward)\s+(?:the\s+)?(?:obstacle|obstacles|hazard|hazards)\b/.test(text)
+            );
+        }
+
+        function updateObstaclePathfindingPolicy(commandText, plannedHeading, rotationApplied) {
+            let suppressGuidance = commandExplicitlyAvoidsObstacles(commandText);
+            const negatesAwayIntent = commandNegatesAwayIntent(commandText);
+            const target = getNextUnclearedObstacle();
+
+            if (
+                !suppressGuidance &&
+                !negatesAwayIntent &&
+                target &&
+                (rotationApplied || commandHasDirectionalIntent(commandText))
+            ) {
+                const dx = target.x - robotPos.x;
+                const dz = target.z - robotPos.z;
+                const distance = Math.hypot(dx, dz);
+                if (distance > 0.001) {
+                    const forward = headingForwardVector(plannedHeading);
+                    const alignment = (forward.x * dx + forward.z * dz) / distance;
+                    suppressGuidance = alignment < -0.2;
+                }
+            }
+
+            obstaclePathfindingEnabled = !suppressGuidance;
+            if (!suppressGuidance) explicitAwayResumeSpeed = 0;
+            pathfindingGraceUntil = clock.elapsedTime + (
+                rotationApplied || commandHasDirectionalIntent(commandText) ? MANUAL_DIRECTION_GRACE : 0.35
+            );
+
+            const log = document.getElementById('diagnostic-log');
+            if (suppressGuidance && log) {
+                log.innerHTML += `<br>[NAV]: Obstacle guidance suspended for explicit away-direction intent.`;
+            }
+            return suppressGuidance;
+        }
+
+        function chooseDetourSide(commandText, obstacle, courseHeading) {
+            const text = String(commandText || '').toLowerCase();
+            if (/\bleft\b/.test(text) && !/\bright\b/.test(text)) return -1;
+            if (/\bright\b/.test(text) && !/\bleft\b/.test(text)) return 1;
+
+            const right = headingRightVector(courseHeading);
+            const rightPoint = {
+                x: obstacle.x + right.x * DETOUR_LATERAL_CLEARANCE,
+                z: obstacle.z + right.z * DETOUR_LATERAL_CLEARANCE
+            };
+            const leftPoint = {
+                x: obstacle.x - right.x * DETOUR_LATERAL_CLEARANCE,
+                z: obstacle.z - right.z * DETOUR_LATERAL_CLEARANCE
+            };
+            const rightRoom = Math.min(
+                TERRAIN_HALF_SIZE - Math.abs(rightPoint.x),
+                TERRAIN_HALF_SIZE - Math.abs(rightPoint.z)
+            );
+            const leftRoom = Math.min(
+                TERRAIN_HALF_SIZE - Math.abs(leftPoint.x),
+                TERRAIN_HALF_SIZE - Math.abs(leftPoint.z)
+            );
+            return rightRoom >= leftRoom ? 1 : -1;
+        }
+
+        function beginObstacleDetour(obstacle, commandText, controlRevision) {
+            if (!obstacle || obstacle.cleared || isRobotIncapacitated()) return false;
+
+            const courseHeading = currentHeading;
+            const forward = headingForwardVector(courseHeading);
+            const right = headingRightVector(courseHeading);
+            const dx = obstacle.x - robotPos.x;
+            const dz = obstacle.z - robotPos.z;
+            const side = chooseDetourSide(commandText, obstacle, courseHeading);
+            const obstacleForward = dx * forward.x + dz * forward.z;
+            const obstacleLateral = dx * right.x + dz * right.z;
+            const flankForward = Math.max(0.15, obstacleForward - DETOUR_PASS_MARGIN);
+            const flankLateral = obstacleLateral + side * DETOUR_LATERAL_CLEARANCE;
+            const passForward = obstacleForward + DETOUR_PASS_MARGIN;
+
+            obstacleDetour = {
+                obstacle,
+                controlRevision,
+                phase: 'turn_out',
+                side,
+                courseHeading,
+                originX: robotPos.x,
+                originZ: robotPos.z,
+                forward,
+                right,
+                obstacleForward,
+                obstacleLateral,
+                flankForward,
+                flankLateral,
+                passForward,
+                rejoinForward: passForward + Math.max(Math.abs(flankLateral), 0.75),
+                previousWaypointDistance: Infinity
+            };
+
+            movementState = 'walk';
+            targetVelocity = 0;
+            movementVelocity = Math.min(movementVelocity, 0.15);
+            targetStepFrequency = Math.max(targetStepFrequency, 1.5);
+            targetCOMYOffset = 0;
+            setCommandPelvicFromPitchRoll(0, 0);
+            setTargetHeadingShortest(courseHeading + side * DETOUR_ANGLE);
+            obstaclePathfindingEnabled = true;
+            pathfindingGraceUntil = clock.elapsedTime + 0.5;
+
+            document.getElementById('telemetry-state').textContent = 'WALK (HAZARD DETOUR)';
+            document.getElementById('diagnostic-log').innerHTML +=
+                `<br>[DETOUR]: Executing ${side < 0 ? 'left' : 'right'} 45° bypass, then rejoining the obstacle route.`;
+            return true;
+        }
+
+        function cancelObstacleDetour(logCancellation = false) {
+            if (!obstacleDetour) return;
+            obstacleDetour = null;
+            if (logCancellation) {
+                document.getElementById('diagnostic-log').innerHTML +=
+                    `<br>[DETOUR]: Bypass cancelled before hazard clearance.`;
+            }
+        }
+
+        function detourLocalPosition(state) {
+            const dx = robotPos.x - state.originX;
+            const dz = robotPos.z - state.originZ;
+            return {
+                forward: dx * state.forward.x + dz * state.forward.z,
+                lateral: dx * state.right.x + dz * state.right.z
+            };
+        }
+
+        function detourWorldPoint(state, forwardDistance, lateralDistance) {
+            return {
+                x: state.originX +
+                    state.forward.x * forwardDistance +
+                    state.right.x * lateralDistance,
+                z: state.originZ +
+                    state.forward.z * forwardDistance +
+                    state.right.z * lateralDistance
+            };
+        }
+
+        function updateObstacleDetour() {
+            const state = obstacleDetour;
+            if (!state) return;
+            if (
+                state.controlRevision !== appliedCommandRevision ||
+                isRobotIncapacitated() ||
+                state.obstacle.cleared
+            ) {
+                cancelObstacleDetour(false);
+                return;
+            }
+
+            const local = detourLocalPosition(state);
+            const outwardHeading = state.courseHeading + state.side * DETOUR_ANGLE;
+            const flankPoint = detourWorldPoint(
+                state,
+                state.flankForward,
+                state.flankLateral
+            );
+            const rejoinPoint = detourWorldPoint(
+                state,
+                state.rejoinForward,
+                0
+            );
+
+            if (state.phase === 'turn_out') {
+                targetVelocity = 0;
+                setTargetHeadingShortest(outwardHeading);
+                if (Math.abs(normalizeHeadingAngle(outwardHeading - currentHeading)) <= DETOUR_TURN_TOLERANCE) {
+                    state.phase = 'outbound';
+                    targetVelocity = DETOUR_SPEED;
+                    movementVelocity = Math.max(movementVelocity, 0.35);
+                }
+                return;
+            }
+
+            if (state.phase === 'outbound') {
+                const waypointDistance = Math.hypot(
+                    flankPoint.x - robotPos.x,
+                    flankPoint.z - robotPos.z
+                );
+                const passedWaypoint = (
+                    state.previousWaypointDistance < 0.4 &&
+                    waypointDistance > state.previousWaypointDistance + 0.003
+                );
+                state.previousWaypointDistance = waypointDistance;
+                targetVelocity = THREE.MathUtils.clamp(
+                    waypointDistance * 1.4,
+                    0.28,
+                    DETOUR_SPEED
+                );
+                setTargetHeadingShortest(headingTowardPoint(flankPoint.x, flankPoint.z));
+                if (waypointDistance <= 0.16 || passedWaypoint) {
+                    state.phase = 'turn_pass';
+                    state.previousWaypointDistance = Infinity;
+                    targetVelocity = 0;
+                }
+                return;
+            }
+
+            if (state.phase === 'turn_pass') {
+                targetVelocity = 0;
+                setTargetHeadingShortest(state.courseHeading);
+                if (Math.abs(normalizeHeadingAngle(state.courseHeading - currentHeading)) <= DETOUR_TURN_TOLERANCE) {
+                    state.phase = 'pass';
+                    targetVelocity = DETOUR_SPEED;
+                    movementVelocity = Math.max(movementVelocity, 0.35);
+                }
+                return;
+            }
+
+            if (state.phase === 'pass') {
+                targetVelocity = DETOUR_SPEED;
+                setTargetHeadingShortest(state.courseHeading);
+                if (local.forward >= state.passForward) {
+                    state.phase = 'turn_in';
+                    targetVelocity = 0;
+                }
+                return;
+            }
+
+            if (state.phase === 'turn_in') {
+                targetVelocity = 0;
+                const rejoinHeading = headingTowardPoint(rejoinPoint.x, rejoinPoint.z);
+                setTargetHeadingShortest(rejoinHeading);
+                if (Math.abs(normalizeHeadingAngle(rejoinHeading - currentHeading)) <= DETOUR_TURN_TOLERANCE) {
+                    state.phase = 'inbound';
+                    state.previousWaypointDistance = Infinity;
+                    targetVelocity = DETOUR_SPEED;
+                    movementVelocity = Math.max(movementVelocity, 0.35);
+                }
+                return;
+            }
+
+            if (state.phase === 'inbound') {
+                const waypointDistance = Math.hypot(
+                    rejoinPoint.x - robotPos.x,
+                    rejoinPoint.z - robotPos.z
+                );
+                const passedWaypoint = (
+                    state.previousWaypointDistance < 0.4 &&
+                    waypointDistance > state.previousWaypointDistance + 0.003
+                );
+                state.previousWaypointDistance = waypointDistance;
+                targetVelocity = THREE.MathUtils.clamp(
+                    waypointDistance * 1.4,
+                    0.28,
+                    DETOUR_SPEED
+                );
+                setTargetHeadingShortest(headingTowardPoint(rejoinPoint.x, rejoinPoint.z));
+                if (
+                    waypointDistance <= 0.16 ||
+                    passedWaypoint ||
+                    (
+                        local.forward >= state.rejoinForward &&
+                        Math.abs(local.lateral) <= DETOUR_REJOIN_TOLERANCE
+                    )
+                ) {
+                    state.phase = 'turn_restore';
+                    targetVelocity = 0;
+                }
+                return;
+            }
+
+            targetVelocity = 0;
+            setTargetHeadingShortest(state.courseHeading);
+            if (Math.abs(normalizeHeadingAngle(state.courseHeading - currentHeading)) > DETOUR_TURN_TOLERANCE) {
+                return;
+            }
+
+            const completedObstacle = state.obstacle;
+            const completedRevision = state.controlRevision;
+            const approachHeading = state.courseHeading;
+            obstacleDetour = null;
+            markObstacleCleared(completedObstacle, approachHeading);
+            if (activeObstacle === completedObstacle) activeObstacle = null;
+            document.getElementById('hazard-hud').classList.add('hidden');
+            updateObstacleHud();
+            document.getElementById('diagnostic-log').innerHTML +=
+                `<br>[CLEARED]: '${completedObstacle.type}' bypassed; original obstacle route reacquired.`;
+            resumeForwardTraversalAfterManeuver(completedRevision, 'Hazard detour');
+        }
+
+        function applyObstaclePathfinding(dt) {
+            if (
+                !obstaclePathfindingEnabled ||
+                clock.elapsedTime < pathfindingGraceUntil ||
+                obstacleDetour ||
+                isRobotIncapacitated() ||
+                isJumping ||
+                isClimbing ||
+                isSliding ||
+                sidestepTimer > 0 ||
+                targetVelocity <= 0.05 ||
+                movementState === 'idle'
+            ) {
+                return;
+            }
+
+            const target = getNextUnclearedObstacle();
+            if (!target) return;
+            const dx = target.x - robotPos.x;
+            const dz = target.z - robotPos.z;
+            if (Math.hypot(dx, dz) < 0.4) return;
+
+            const desiredHeading = headingTowardPoint(target.x, target.z);
+            const headingError = normalizeHeadingAngle(desiredHeading - currentHeading);
+            if (Math.abs(headingError) <= PATHFIND_DEAD_ZONE) return;
+
+            const correction = THREE.MathUtils.clamp(
+                headingError,
+                -PATHFIND_HEADING_RATE * dt,
+                PATHFIND_HEADING_RATE * dt
+            );
+            const headingResponse = Math.max(headingResponseForDelta(dt), 0.001);
+            targetHeading = currentHeading + correction / headingResponse;
+        }
 
         function setCommandPelvicFromPitchRoll(pitch, roll) {
             const safePitch = THREE.MathUtils.clamp(Number.isFinite(pitch) ? pitch : 0, -0.35, 0.35);
@@ -1405,10 +1874,10 @@
         }
 
         function resumeForwardTraversalAfterManeuver(controlRevision, label) {
+            updateReturnObstacleButton();
             if (
                 controlRevision !== appliedCommandRevision ||
-                isFallen ||
-                isRecovering
+                isRobotIncapacitated()
             ) {
                 return;
             }
@@ -1426,6 +1895,7 @@
         function resetKinematicCommandState() {
             appliedCommandRevision += 1;
             finishReservedTerrainClimbObstacle(false);
+            cancelObstacleDetour(false);
             movementState = 'idle';
             movementVelocity = 0;
             targetVelocity = 0;
@@ -1455,10 +1925,17 @@
             activeClimbHeight = CLIMB_HEIGHT;
             isSliding = false;
             slideControlRevision = -1;
+            isTerrainAssistedSlide = false;
+            activeSlideDuration = SLIDE_DURATION;
+            activeSlideDrop = SLIDE_DROP;
+            activeSlideForwardSpeed = SLIDE_FORWARD_SPEED;
             sidestepTimer = 0;
             sidestepSign = 0;
             sidestepControlRevision = -1;
             stumbleTimer = 0;
+            obstaclePathfindingEnabled = true;
+            pathfindingGraceUntil = -999;
+            explicitAwayResumeSpeed = 0;
             if (torsoGroup) torsoGroup.quaternion.identity();
         }
 
@@ -1555,12 +2032,11 @@
             if (terrainMesh) scene.remove(terrainMesh);
             currentBiome = type;
 
-            const size = 60;
             // Half-meter cells preserve the authored crag faces below. The old
             // one-meter grid visually rounded the same physical height samples
             // into gentle hills even when the balance controller saw a steep face.
             const segments = 120;
-            const geometry = new THREE.PlaneGeometry(size, size, segments, segments);
+            const geometry = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, segments, segments);
             const position = geometry.attributes.position;
 
             for (let i = 0; i < position.count; i++) {
@@ -1599,6 +2075,7 @@
                 case 'rubble': return 0x64748b;
                 case 'mud': return 0x78350f;
                 case 'volcanic': return 0xdc2626;
+                case 'mountains': return 0x16a34a;
                 case 'snow': return 0xe2e8f0;
                 case 'collapsing': return 0x7c3aed;
                 default: return 0x1f1f2e;
@@ -1610,25 +2087,26 @@
             return t * t * (3 - 2 * t);
         }
 
+        function calculateSingleLedgeFeatureHeight(globalX, globalZ, feature) {
+            const innerHalfWidth = feature.halfWidth * (feature.innerRatio ?? 0.72);
+            const edgeWidth = Math.max(0.2, feature.halfWidth - innerHalfWidth);
+            const lateralDistance = Math.abs(globalX - feature.x);
+            const lateralMask = 1 - smoothStep01((lateralDistance - innerHalfWidth) / edgeWidth);
+
+            // The robot initially faces world -Z. A short, steep entry face
+            // rises to a broad shelf, then the far side descends. Existing
+            // rubble/volcanic feature values retain their original geometry;
+            // mountain-only features use a narrower inner ratio for real peaks.
+            const entry = smoothStep01((feature.frontZ - globalZ) / feature.faceDepth);
+            const exit = 1 - smoothStep01((feature.backZ - globalZ) / feature.rearDepth);
+            return feature.rise * lateralMask * entry * exit;
+        }
+
         function calculateAuthoredLedgeHeight(globalX, globalZ, type) {
-            const features = TERRAIN_LEDGE_FEATURES[type] || [];
-            let height = 0;
-
-            for (const feature of features) {
-                const innerHalfWidth = feature.halfWidth * 0.72;
-                const edgeWidth = Math.max(0.2, feature.halfWidth - innerHalfWidth);
-                const lateralDistance = Math.abs(globalX - feature.x);
-                const lateralMask = 1 - smoothStep01((lateralDistance - innerHalfWidth) / edgeWidth);
-
-                // The robot initially faces world -Z. A short, steep entry face
-                // rises to a broad shelf; the far side descends gradually so the
-                // climb animation has time to settle before another tilt check.
-                const entry = smoothStep01((feature.frontZ - globalZ) / feature.faceDepth);
-                const exit = 1 - smoothStep01((feature.backZ - globalZ) / feature.rearDepth);
-                height += feature.rise * lateralMask * entry * exit;
-            }
-
-            return height;
+            return (TERRAIN_LEDGE_FEATURES[type] || []).reduce(
+                (height, feature) => height + calculateSingleLedgeFeatureHeight(globalX, globalZ, feature),
+                0
+            );
         }
 
         function calculateUnsupportedDropHeight(globalX, globalZ, type) {
@@ -1666,6 +2144,7 @@
             else if (type === 'rubble') base = (Math.sin(localX * 1.25) * Math.cos(localY * 1.25) * 0.24) + (Math.sin(localX * 2.4) * 0.12);
             else if (type === 'mud') base = Math.sin(localX * 0.3) * Math.cos(localY * 0.5) * 0.25 - 0.2;
             else if (type === 'volcanic') base = (Math.sin(localX * 1.5) * Math.cos(localY * 1.5) * 0.35) + (Math.sin(localX * 0.5) * 0.25);
+            else if (type === 'mountains') base = (Math.sin(localX * 0.22) * Math.cos(localY * 0.24) * 0.08);
             else if (type === 'snow') base = Math.sin(localX * 0.25) * Math.cos(localY * 0.25) * 0.2;
             else if (type === 'collapsing') base = (Math.sin(localX * 1.2) * Math.cos(localY * 0.8) * 0.35) - Math.abs(Math.sin(localX * 0.4) * 0.3);
 
@@ -1881,11 +2360,12 @@
             obstacles.forEach(o => scene.remove(o.mesh));
             obstacles = [];
             activeObstacle = null;
+            lastClearedCheckpoint = null;
             document.getElementById('hazard-hud').classList.add('hidden');
 
             const weightedTypes = BIOME_OBSTACLE_WEIGHTS[biome] || OBSTACLE_TYPES;
-            const count = 3 + Math.floor(Math.random() * 3);
-            const spacing = 20 / count;
+            const count = biome === 'mountains' ? 0 : 3 + Math.floor(Math.random() * 3);
+            const spacing = count > 0 ? 20 / count : 0;
 
             for (let i = 0; i < count; i++) {
                 const type = weightedTypes[Math.floor(Math.random() * weightedTypes.length)];
@@ -1910,6 +2390,22 @@
             return { forwardDist, lateralDist };
         }
 
+        function updateReturnObstacleButton() {
+            const button = document.getElementById('return-obstacle-btn');
+            if (!button) return;
+            const maneuverInProgress = (
+                isJumping ||
+                isClimbing ||
+                isSliding ||
+                sidestepTimer > 0 ||
+                Boolean(obstacleDetour) ||
+                isPipelineBusy ||
+                Boolean(activeTraverseController) ||
+                isRobotIncapacitated()
+            );
+            button.disabled = !lastClearedCheckpoint || maneuverInProgress;
+        }
+
         function updateObstacleHud() {
             const clearedCount = obstacles.filter(o => o.cleared).length;
             document.getElementById('obstacle-count').textContent = `${clearedCount} / ${obstacles.length}`;
@@ -1920,17 +2416,35 @@
             } else {
                 line.textContent = 'No active hazard. Path is clear.';
             }
+            updateReturnObstacleButton();
         }
 
-        function markObstacleCleared(obstacle) {
+        function markObstacleCleared(obstacle, approachHeading = currentHeading) {
+            const safeHeading = Number.isFinite(approachHeading) ? approachHeading : currentHeading;
+            const forward = headingForwardVector(safeHeading);
             obstacle.cleared = true;
             obstacle.clearAnimStart = clock.elapsedTime;
+            lastClearedCheckpoint = {
+                obstacle,
+                x: THREE.MathUtils.clamp(
+                    obstacle.x - forward.x * RETURN_FRONT_DISTANCE,
+                    -VOID_TRIGGER_BOUNDARY + 0.5,
+                    VOID_TRIGGER_BOUNDARY - 0.5
+                ),
+                z: THREE.MathUtils.clamp(
+                    obstacle.z - forward.z * RETURN_FRONT_DISTANCE,
+                    -VOID_TRIGGER_BOUNDARY + 0.5,
+                    VOID_TRIGGER_BOUNDARY - 0.5
+                ),
+                heading: safeHeading
+            };
             obstacle.mesh.traverse(child => {
                 if (child.material) {
                     child.material.color.set(0x10b981);
                     if (child.material.emissive) child.material.emissive.set(0x047857);
                 }
             });
+            updateReturnObstacleButton();
         }
 
         function findNearbyClimbableLedge(type) {
@@ -1939,26 +2453,77 @@
             // Authored terrain ledges are checked by their actual top lip instead
             // of trying to rediscover a known geometric feature from noisy height
             // samples. This guarantees that the visible rubble shelves and
-            // volcanic crags provide a grip exactly when their entry face creates
-            // an extreme tilt.
+            // volcanic/mountain crags provide a grip from either approach face
+            // exactly when that face creates an extreme uphill tilt.
+            const forwardVector = headingForwardVector(currentHeading);
+            const currentHeight = calculateGroundMathHeight(robotPos.x, robotPos.z, type);
             for (const feature of TERRAIN_LEDGE_FEATURES[type] || []) {
-                const lip = {
-                    x: feature.x,
-                    z: feature.frontZ - feature.faceDepth
-                };
-                const { forwardDist, lateralDist } = relativeLocal(lip);
-                const lateralReach = Math.min(LEDGE_MAX_LATERAL, feature.halfWidth * 0.65);
+                const immediateProbeDistance = 0.15;
+                const immediateX = robotPos.x + forwardVector.x * immediateProbeDistance;
+                const immediateZ = robotPos.z + forwardVector.z * immediateProbeDistance;
+                const currentFeatureHeight = calculateSingleLedgeFeatureHeight(
+                    robotPos.x,
+                    robotPos.z,
+                    feature
+                );
+                const immediateFeatureHeight = calculateSingleLedgeFeatureHeight(
+                    immediateX,
+                    immediateZ,
+                    feature
+                );
+                const immediateGroundRise =
+                    calculateGroundMathHeight(immediateX, immediateZ, type) - currentHeight;
                 if (
-                    forwardDist >= 0.05 &&
-                    forwardDist <= LEDGE_MAX_DISTANCE &&
-                    Math.abs(lateralDist) <= lateralReach
+                    immediateFeatureHeight - currentFeatureHeight >= 0.005 &&
+                    immediateGroundRise > 0
                 ) {
                     return {
                         kind: 'terrain',
                         featureId: feature.id,
-                        distance: forwardDist,
-                        rise: feature.rise
+                        distance: immediateProbeDistance,
+                        rise: Math.max(
+                            LEDGE_MIN_RISE,
+                            feature.rise - currentFeatureHeight
+                        )
                     };
+                }
+
+                const lips = [
+                    {
+                        x: feature.x,
+                        z: feature.frontZ - feature.faceDepth,
+                        approachX: 0,
+                        approachZ: -1
+                    },
+                    {
+                        x: feature.x,
+                        z: feature.backZ,
+                        approachX: 0,
+                        approachZ: 1
+                    }
+                ];
+
+                for (const lip of lips) {
+                    const approachAlignment =
+                        forwardVector.x * lip.approachX + forwardVector.z * lip.approachZ;
+                    if (approachAlignment < 0.35) continue;
+
+                    const { forwardDist, lateralDist } = relativeLocal(lip);
+                    const lateralReach = Math.min(LEDGE_MAX_LATERAL, feature.halfWidth * 0.65);
+                    const lipHeight = calculateGroundMathHeight(lip.x, lip.z, type);
+                    if (
+                        forwardDist >= 0.05 &&
+                        forwardDist <= LEDGE_MAX_DISTANCE &&
+                        Math.abs(lateralDist) <= lateralReach &&
+                        lipHeight >= currentHeight - 0.02
+                    ) {
+                        return {
+                            kind: 'terrain',
+                            featureId: feature.id,
+                            distance: forwardDist,
+                            rise: feature.rise
+                        };
+                    }
                 }
             }
 
@@ -2011,9 +2576,161 @@
             return null;
         }
 
+        function findNearbySlidableDescent(type) {
+            const features = TERRAIN_LEDGE_FEATURES[type] || [];
+            if (!features.length) return null;
+
+            const forward = headingForwardVector(currentHeading);
+            const samplePoint = distance => ({
+                x: robotPos.x + forward.x * distance,
+                z: robotPos.z + forward.z * distance
+            });
+            const distances = [0.15, 0.3, 0.5, 0.75, 1.0, 1.3, 1.65, 2.0, 2.4];
+            const originGround = calculateGroundMathHeight(robotPos.x, robotPos.z, type);
+            const originFeatureHeights = new Map(
+                features.map(feature => [
+                    feature.id,
+                    calculateSingleLedgeFeatureHeight(robotPos.x, robotPos.z, feature)
+                ])
+            );
+            const previousFeatureHeights = new Map(originFeatureHeights);
+            const immediatePoint = samplePoint(0.3);
+            const immediateGround = calculateGroundMathHeight(
+                immediatePoint.x,
+                immediatePoint.z,
+                type
+            );
+            let previousDistance = 0;
+            let previousGround = originGround;
+
+            for (const distance of distances) {
+                const point = samplePoint(distance);
+                const ground = calculateGroundMathHeight(point.x, point.z, type);
+                const segmentRun = distance - previousDistance;
+                const groundDrop = previousGround - ground;
+
+                for (const feature of features) {
+                    const featureHeight = calculateSingleLedgeFeatureHeight(point.x, point.z, feature);
+                    const previousFeatureHeight = previousFeatureHeights.get(feature.id) || 0;
+                    const originFeatureHeight = originFeatureHeights.get(feature.id) || 0;
+                    const featureSegmentDrop = previousFeatureHeight - featureHeight;
+                    const featureTotalDrop = originFeatureHeight - featureHeight;
+                    const immediateFeatureHeight = calculateSingleLedgeFeatureHeight(
+                        immediatePoint.x,
+                        immediatePoint.z,
+                        feature
+                    );
+                    const immediateFeatureDrop = originFeatureHeight - immediateFeatureHeight;
+                    const immediateGroundDrop = originGround - immediateGround;
+                    const faceAngle = Math.atan2(
+                        Math.max(featureSegmentDrop, groundDrop),
+                        Math.max(segmentRun, 0.001)
+                    );
+
+                    if (
+                        featureSegmentDrop >= 0.035 &&
+                        groundDrop >= 0.02 &&
+                        featureTotalDrop >= 0.08 &&
+                        immediateFeatureDrop >= 0.02 &&
+                        immediateGroundDrop >= 0.015 &&
+                        faceAngle >= THREE.MathUtils.degToRad(16)
+                    ) {
+                        let landingDistance = distance;
+                        const landingThreshold = Math.max(0.025, originFeatureHeight * 0.08);
+                        for (let scanDistance = distance + 0.2; scanDistance <= 3.0; scanDistance += 0.2) {
+                            const scan = samplePoint(scanDistance);
+                            landingDistance = scanDistance;
+                            if (
+                                calculateSingleLedgeFeatureHeight(scan.x, scan.z, feature) <= landingThreshold
+                            ) {
+                                break;
+                            }
+                        }
+
+                        return {
+                            featureId: feature.id,
+                            distance,
+                            landingDistance,
+                            drop: Math.max(featureTotalDrop, originGround - ground, featureSegmentDrop),
+                            faceAngle
+                        };
+                    }
+
+                    previousFeatureHeights.set(feature.id, featureHeight);
+                }
+
+                previousDistance = distance;
+                previousGround = ground;
+            }
+            return null;
+        }
+
+        function beginTerrainAssistedSlide(descent) {
+            const now = clock.elapsedTime;
+            if (
+                !descent ||
+                isSliding ||
+                isClimbing ||
+                isJumping ||
+                sidestepTimer > 0 ||
+                obstacleDetour ||
+                isRobotIncapacitated() ||
+                now < terrainSlideCooldownUntil
+            ) {
+                return false;
+            }
+
+            const duration = THREE.MathUtils.clamp(
+                0.9 + descent.drop * 0.35,
+                TERRAIN_SLIDE_MIN_DURATION,
+                TERRAIN_SLIDE_MAX_DURATION
+            );
+            const forwardSpeed = THREE.MathUtils.clamp(
+                (descent.landingDistance + 0.2) / (duration * SPEED_SCALE),
+                TERRAIN_SLIDE_MIN_SPEED,
+                TERRAIN_SLIDE_MAX_SPEED
+            );
+
+            simulationRevision += 1;
+            cancelActiveTraversalRequest();
+            isSliding = true;
+            isTerrainAssistedSlide = true;
+            slideStartTime = now;
+            slideControlRevision = appliedCommandRevision;
+            activeSlideDuration = duration;
+            activeSlideDrop = THREE.MathUtils.clamp(0.12 + descent.drop * 0.08, 0.14, 0.25);
+            activeSlideForwardSpeed = forwardSpeed;
+            terrainSlideCooldownUntil = now + duration + TERRAIN_SLIDE_COOLDOWN;
+            terrainFallGraceUntil = terrainSlideCooldownUntil + 0.4;
+            movementState = 'slide';
+            targetVelocity = Math.max(targetVelocity, forwardSpeed);
+            movementVelocity = Math.max(movementVelocity, Math.min(forwardSpeed, 0.8));
+            targetStepFrequency = Math.max(targetStepFrequency, 1.7);
+            targetCOMYOffset = -0.12;
+            setCommandPelvicFromPitchRoll(-0.22, 0);
+            updateReturnObstacleButton();
+
+            const angleDegrees = THREE.MathUtils.radToDeg(descent.faceAngle).toFixed(1);
+            document.getElementById('telemetry-state').textContent = 'SLIDE (MOUNTAIN DESCENT)';
+            document.getElementById('diagnostic-log').innerHTML +=
+                `<br>[DESCENT]: ${angleDegrees}° authored mountain face detected — smooth ledge slide engaged.`;
+            return true;
+        }
+
         function beginTerrainAssistedClimb(ledge, steepestTilt) {
             const now = clock.elapsedTime;
-            if (!ledge || isClimbing || now < terrainClimbCooldownUntil) return false;
+            if (
+                !ledge ||
+                isClimbing ||
+                isSliding ||
+                isJumping ||
+                sidestepTimer > 0 ||
+                obstacleDetour ||
+                isRobotIncapacitated() ||
+                now < terrainClimbCooldownUntil
+            ) {
+                return false;
+            }
 
             isClimbing = true;
             isTerrainAssistedClimb = true;
@@ -2021,7 +2738,7 @@
             cancelActiveTraversalRequest();
             climbStartTime = now;
             climbControlRevision = appliedCommandRevision;
-            activeClimbHeight = THREE.MathUtils.clamp(ledge.rise + 0.15, CLIMB_HEIGHT, 1.15);
+            activeClimbHeight = THREE.MathUtils.clamp(ledge.rise + 0.15, CLIMB_HEIGHT, 1.45);
             terrainClimbCooldownUntil = now + CLIMB_DURATION + TERRAIN_CLIMB_COOLDOWN;
             terrainFallGraceUntil = terrainClimbCooldownUntil;
             movementState = 'climb';
@@ -2030,6 +2747,7 @@
             targetStepFrequency = Math.max(targetStepFrequency, 2.1);
             targetCOMYOffset = Math.max(targetCOMYOffset, 0.06);
             setCommandPelvicFromPitchRoll(-0.18, 0);
+            updateReturnObstacleButton();
 
             if (ledge.obstacle) {
                 terrainClimbObstacle = ledge.obstacle;
@@ -2063,12 +2781,84 @@
             stumbleTimer = 0.5;
         }
 
-        function triggerFall(pitchAmt, rollAmt) {
-            if (isFallen || isRecovering) return;
+        function triggerVoidFall(horizontalSpeed = 0) {
+            if (isRobotIncapacitated()) return;
             simulationRevision += 1;
             cancelActiveTraversalRequest();
             finishReservedTerrainClimbObstacle(false);
+            cancelObstacleDetour(false);
+
+            isVoided = true;
+            updateReturnObstacleButton();
+            voidStartTime = clock.elapsedTime;
+            voidWorldY = humanoidGroup
+                ? humanoidGroup.position.y
+                : calculateGroundMathHeight(robotPos.x, robotPos.z, currentBiome);
+            voidVerticalVelocity = 0;
+
+            const forward = headingForwardVector(currentHeading);
+            const momentum = Math.max(horizontalSpeed, movementVelocity, 0.45) * SPEED_SCALE;
+            voidHorizontalVelocityX = forward.x * momentum;
+            voidHorizontalVelocityZ = forward.z * momentum;
+            voidEdgeAxis = Math.abs(robotPos.x) >= Math.abs(robotPos.z) ? 'x' : 'z';
+            voidEdgeSign = Math.sign(voidEdgeAxis === 'x' ? robotPos.x : robotPos.z) || 1;
+
+            const outwardX = voidEdgeAxis === 'x' ? voidEdgeSign : 0;
+            const outwardZ = voidEdgeAxis === 'z' ? voidEdgeSign : 0;
+            const right = headingRightVector(currentHeading);
+            // The rig uses YXZ Euler order, so resolve the world-edge direction onto its
+            // post-yaw local pitch/roll axes before animating the outward tip.
+            voidLocalPitchFactor = outwardX * forward.x - outwardZ * forward.z;
+            voidLocalRollFactor = -outwardX * right.x + outwardZ * right.z;
+            fallTiltAxis =
+                Math.abs(voidLocalPitchFactor) >= Math.abs(voidLocalRollFactor) ? 'x' : 'z';
+            fallSign = Math.sign(
+                fallTiltAxis === 'x' ? voidLocalPitchFactor : voidLocalRollFactor
+            ) || 1;
+            const outwardMomentum =
+                voidHorizontalVelocityX * outwardX + voidHorizontalVelocityZ * outwardZ;
+            if (outwardMomentum < 0.35) {
+                voidHorizontalVelocityX += outwardX * (0.35 - outwardMomentum);
+                voidHorizontalVelocityZ += outwardZ * (0.35 - outwardMomentum);
+            }
+
+            movementState = 'idle';
+            targetVelocity = 0;
+            movementVelocity = 0;
+            isJumping = false;
+            jumpControlRevision = -1;
+            isClimbing = false;
+            climbControlRevision = -1;
+            isTerrainAssistedClimb = false;
+            isSliding = false;
+            slideControlRevision = -1;
+            isTerrainAssistedSlide = false;
+            sidestepTimer = 0;
+            sidestepControlRevision = -1;
+            stumbleTimer = 0;
+            if (captureIndicator) captureIndicator.visible = false;
+
+            document.getElementById('telemetry-state').textContent = 'VOID DESCENT (SUPPORT LOST)';
+            document.getElementById('diagnostic-log').innerHTML +=
+                `<br>[VOID]: Terrain support lost at map boundary. Chassis is in uncontrolled descent.`;
+
+            if (pendingFallOverlayTimeout) clearTimeout(pendingFallOverlayTimeout);
+            pendingFallOverlayTimeout = setTimeout(() => {
+                pendingFallOverlayTimeout = null;
+                if (!isVoided) return;
+                playVoidFailureSound();
+                showFallOverlay('void');
+            }, VOID_OVERLAY_DELAY * 1000);
+        }
+
+        function triggerFall(pitchAmt, rollAmt) {
+            if (isRobotIncapacitated()) return;
+            simulationRevision += 1;
+            cancelActiveTraversalRequest();
+            finishReservedTerrainClimbObstacle(false);
+            cancelObstacleDetour(false);
             isFallen = true;
+            updateReturnObstacleButton();
             fallStartTime = clock.elapsedTime;
             fallTiltAxis = Math.abs(pitchAmt) >= Math.abs(rollAmt) ? 'x' : 'z';
             const dominant = fallTiltAxis === 'x' ? pitchAmt : rollAmt;
@@ -2078,7 +2868,7 @@
             targetVelocity = 0; movementVelocity = 0;
             isJumping = false; jumpControlRevision = -1;
             isClimbing = false; climbControlRevision = -1; isTerrainAssistedClimb = false;
-            isSliding = false; slideControlRevision = -1;
+            isSliding = false; slideControlRevision = -1; isTerrainAssistedSlide = false;
             sidestepTimer = 0; sidestepControlRevision = -1; stumbleTimer = 0;
 
             document.getElementById('telemetry-state').textContent = 'FALLEN (SYSTEM OVERLOAD)';
@@ -2094,11 +2884,36 @@
                 pendingFallOverlayTimeout = null;
                 if (!isFallen) return; // reboot may already have been triggered mid-animation
                 playSystemOverloadSound();
-                showFallOverlay();
+                showFallOverlay('overload');
             }, FALL_ANIM_DURATION * 1000);
         }
 
-        function showFallOverlay() {
+        function showFallOverlay(mode = 'overload') {
+            const panel = document.getElementById('failure-overlay-panel');
+            const icon = document.getElementById('failure-overlay-icon');
+            const title = document.getElementById('failure-overlay-title');
+            const message = document.getElementById('failure-overlay-message');
+            const rebootButton = document.getElementById('reboot-btn');
+
+            if (mode === 'void') {
+                panel.className = 'glass-panel w-full max-w-md rounded-2xl p-6 border border-cyan-500/40 shadow-2xl space-y-4 text-center relative';
+                icon.className = 'w-14 h-14 rounded-full bg-cyan-500/20 border border-cyan-500/60 flex items-center justify-center text-cyan-400 font-bold text-2xl mx-auto';
+                icon.textContent = '▽';
+                title.className = 'text-base font-extrabold text-cyan-400 uppercase font-mono tracking-widest';
+                title.textContent = 'System Voided';
+                message.textContent = 'Terrain support lost. Chassis descended beyond the simulation boundary.';
+                rebootButton.className = 'w-full py-3 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs uppercase tracking-wider rounded-lg shadow-[0_0_20px_rgba(34,211,238,0.4)] transition-all';
+                rebootButton.textContent = 'Press [R] to Reinitialize';
+            } else {
+                panel.className = 'glass-panel w-full max-w-md rounded-2xl p-6 border border-rose-500/40 shadow-2xl space-y-4 text-center relative alert-pulse';
+                icon.className = 'w-14 h-14 rounded-full bg-rose-500/20 border border-rose-500/60 flex items-center justify-center text-rose-400 font-bold text-2xl mx-auto';
+                icon.textContent = '⚠';
+                title.className = 'text-base font-extrabold text-rose-400 uppercase font-mono tracking-widest';
+                title.textContent = 'System Overload';
+                message.textContent = 'Maximum tilt angle exceeded. Balance stabilizers offline.';
+                rebootButton.className = 'w-full py-3 bg-rose-500 hover:bg-rose-400 text-slate-950 font-bold text-xs uppercase tracking-wider rounded-lg shadow-[0_0_20px_rgba(244,63,94,0.4)] transition-all';
+                rebootButton.textContent = 'Press [R] to Reboot';
+            }
             document.getElementById('fall-overlay-modal').classList.remove('hidden');
         }
 
@@ -2152,8 +2967,31 @@
             }
         }
 
+        function playVoidFailureSound() {
+            try {
+                const ctx = getSfxAudioContext();
+                if (ctx.state === 'suspended') ctx.resume();
+                const now = ctx.currentTime;
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(180, now);
+                osc.frequency.exponentialRampToValueAtTime(28, now + 1.35);
+                gain.gain.setValueAtTime(0.0001, now);
+                gain.gain.exponentialRampToValueAtTime(0.22, now + 0.08);
+                gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.4);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start(now);
+                osc.stop(now + 1.45);
+            } catch (e) {
+                console.warn('[Audio]: Void failure sound effect failed to play.', e);
+            }
+        }
+
         function handleRebootRecovery() {
-            if (!isFallen) return;
+            if (!isFallen && !isVoided) return;
+            const recoveredFromVoid = isVoided;
             simulationRevision += 1;
             cancelActiveTraversalRequest();
             if (pendingFallOverlayTimeout) {
@@ -2161,9 +2999,15 @@
                 pendingFallOverlayTimeout = null;
             }
             isFallen = false;
+            isVoided = false;
             isRecovering = true;
             recoveryStartTime = clock.elapsedTime;
+            voidStartTime = -999;
+            voidVerticalVelocity = 0;
+            voidHorizontalVelocityX = 0;
+            voidHorizontalVelocityZ = 0;
             hideFallOverlay();
+            if (captureIndicator) captureIndicator.visible = true;
 
             // FIX: reset the tilt back to flat here -- otherwise the very next tilt check in the
             // animation loop sees the same out-of-bounds slope that caused the fall and immediately
@@ -2183,22 +3027,76 @@
             currentHeading = 0;
             targetHeading = 0;
             terrainClimbCooldownUntil = -999;
+            terrainSlideCooldownUntil = -999;
             terrainFallGraceUntil = clock.elapsedTime + RECOVERY_ANIM_DURATION + 0.5;
 
             // Clear every command-driven pose and locomotion accumulator so no
             // pre-fall quaternion, crouch offset, cadence, or capture point leaks
             // into the recovered stance.
             resetKinematicCommandState();
+            if (recoveredFromVoid && humanoidGroup) {
+                humanoidGroup.rotation.x = fallTiltAxis === 'x' ? fallSign * FALL_TARGET_ANGLE : 0;
+                humanoidGroup.rotation.z = fallTiltAxis === 'z' ? fallSign * FALL_TARGET_ANGLE : 0;
+            }
 
             document.getElementById('telemetry-state').textContent = 'REBOOTING (RECOVERY)';
-            document.getElementById('diagnostic-log').innerHTML += `<br>[REBOOT]: Balance stabilizers back online. Recovering at the safe spawn platform...<br>[REBOOT]: Matrix Ground Angle reset to 0° (flat).`;
+            document.getElementById('diagnostic-log').innerHTML += recoveredFromVoid
+                ? `<br>[REINITIALIZE]: Chassis restored from void state at the safe spawn platform. Cleared-hazard progress retained.<br>[REINITIALIZE]: Matrix Ground Angle reset to 0° (flat).`
+                : `<br>[REBOOT]: Balance stabilizers back online. Recovering at the safe spawn platform...<br>[REBOOT]: Matrix Ground Angle reset to 0° (flat).`;
         }
 
         document.addEventListener('keydown', (e) => {
-            if ((e.key === 'r' || e.key === 'R') && isFallen) {
+            if ((e.key === 'r' || e.key === 'R') && (isFallen || isVoided)) {
                 handleRebootRecovery();
             }
         });
+
+        function returnToLastClearedObstacle() {
+            const checkpoint = lastClearedCheckpoint;
+            const log = document.getElementById('diagnostic-log');
+            if (!checkpoint) {
+                log.innerHTML += `<br>[RETURN]: No cleared-hazard checkpoint is available.`;
+                return;
+            }
+            if (isRobotIncapacitated()) {
+                log.innerHTML += `<br>[RETURN BLOCKED]: Reboot or reinitialize the robot before returning to a hazard checkpoint.`;
+                return;
+            }
+            if (
+                isJumping ||
+                isClimbing ||
+                isSliding ||
+                sidestepTimer > 0 ||
+                obstacleDetour ||
+                isPipelineBusy ||
+                activeTraverseController
+            ) {
+                log.innerHTML += `<br>[RETURN BLOCKED]: Complete the active traversal maneuver before returning to the last cleared hazard.`;
+                return;
+            }
+
+            simulationRevision += 1;
+            cancelActiveTraversalRequest();
+            resetKinematicCommandState();
+            robotPos = { x: checkpoint.x, z: checkpoint.z };
+            currentHeading = checkpoint.heading;
+            targetHeading = checkpoint.heading;
+            activeObstacle = null;
+            terrainFallGraceUntil = clock.elapsedTime + 0.8;
+            pathfindingGraceUntil = clock.elapsedTime + 0.8;
+            explicitAwayResumeSpeed = 0;
+            document.getElementById('hazard-hud').classList.add('hidden');
+            if (humanoidGroup) {
+                humanoidGroup.rotation.x = 0;
+                humanoidGroup.rotation.z = 0;
+            }
+            if (captureIndicator) captureIndicator.visible = true;
+            updateObstacleHud();
+            document.getElementById('telemetry-state').textContent = 'IDLE (LAST CLEARED HAZARD)';
+            log.innerHTML +=
+                `<br>[RETURN]: Robot repositioned in front of the last cleared '${checkpoint.obstacle.type}' checkpoint. Progress preserved.`;
+            log.scrollTop = log.scrollHeight;
+        }
 
         function setupInterfaceListeners() {
             const selector = document.getElementById('terrain-selector');
@@ -2209,6 +3107,7 @@
             const executeBtn = document.getElementById('execute-btn');
             const generateBtn = document.getElementById('generate-terrain-btn');
             const resetBtn = document.getElementById('reset-btn');
+            const returnObstacleBtn = document.getElementById('return-obstacle-btn');
             const log = document.getElementById('diagnostic-log');
 
             selector.addEventListener('change', (e) => {
@@ -2241,11 +3140,20 @@
                 robotPos = { x: 0, z: 0 };
                 currentHeading = 0; targetHeading = 0;
                 resetKinematicCommandState();
-                isFallen = false; isRecovering = false;
+                isFallen = false; isVoided = false; isRecovering = false;
                 terrainClimbCooldownUntil = -999;
+                terrainSlideCooldownUntil = -999;
                 terrainFallGraceUntil = -999;
+                voidStartTime = -999;
+                voidVerticalVelocity = 0;
+                voidHorizontalVelocityX = 0;
+                voidHorizontalVelocityZ = 0;
+                obstaclePathfindingEnabled = true;
+                pathfindingGraceUntil = -999;
+                explicitAwayResumeSpeed = 0;
                 if (pendingFallOverlayTimeout) { clearTimeout(pendingFallOverlayTimeout); pendingFallOverlayTimeout = null; }
                 hideFallOverlay();
+                if (captureIndicator) captureIndicator.visible = true;
                 if (humanoidGroup) {
                     humanoidGroup.rotation.x = 0;
                     humanoidGroup.rotation.z = 0;
@@ -2254,6 +3162,8 @@
                 document.getElementById('telemetry-state').textContent = 'IDLE (STANDING)';
                 log.innerHTML += `<br>[RESET]: Robot returned to START marker with command pose cleared.`;
             });
+
+            returnObstacleBtn.addEventListener('click', returnToLastClearedObstacle);
 
             frictionSlider.addEventListener('input', (e) => {
                 const val = parseFloat(e.target.value).toFixed(2);
@@ -2282,11 +3192,20 @@
             robotPos = { x: 0, z: 0 };
             currentHeading = 0; targetHeading = 0;
             resetKinematicCommandState();
-            isFallen = false; isRecovering = false;
+            isFallen = false; isVoided = false; isRecovering = false;
             terrainClimbCooldownUntil = -999;
+            terrainSlideCooldownUntil = -999;
             terrainFallGraceUntil = -999;
+            voidStartTime = -999;
+            voidVerticalVelocity = 0;
+            voidHorizontalVelocityX = 0;
+            voidHorizontalVelocityZ = 0;
+            obstaclePathfindingEnabled = true;
+            pathfindingGraceUntil = -999;
+            explicitAwayResumeSpeed = 0;
             if (pendingFallOverlayTimeout) { clearTimeout(pendingFallOverlayTimeout); pendingFallOverlayTimeout = null; }
             hideFallOverlay();
+            if (captureIndicator) captureIndicator.visible = true;
             generateProceduralTerrain(biome);
             buildStartMarker();
             spawnObstacleField(biome);
@@ -2315,7 +3234,7 @@
                 return;
             }
 
-            if (isFallen || isRecovering) {
+            if (isRobotIncapacitated()) {
                 log.innerHTML += `<br>[BLOCKED]: Robot is down. Press [R] to reboot before issuing new commands.`;
                 return;
             }
@@ -2332,6 +3251,7 @@
                 return;
             }
             isPipelineBusy = true;
+            updateReturnObstacleButton();
 
             shimmerHud.classList.remove('hidden');
             executeBtn.disabled = true;
@@ -2343,6 +3263,7 @@
             const requestId = `traverse-${Date.now()}-${++traverseRequestSequence}`;
             const requestSimulationRevision = simulationRevision;
             const requestedObstacle = activeObstacle && !activeObstacle.cleared ? activeObstacle : null;
+            const walkAroundRequested = Boolean(requestedObstacle && isWalkAroundCommand(commandText));
             const timeoutController = new AbortController();
             activeTraverseController = timeoutController;
             let requestTimedOut = false;
@@ -2392,8 +3313,7 @@
                 }
                 if (
                     requestSimulationRevision !== simulationRevision ||
-                    isFallen ||
-                    isRecovering
+                    isRobotIncapacitated()
                 ) {
                     log.innerHTML += `<br>[STALE]: Traversal response ignored because simulation state changed.`;
                     return;
@@ -2406,6 +3326,7 @@
                 }
 
                 const commandRevision = ++appliedCommandRevision;
+                cancelObstacleDetour(false);
 
                 if (data.trigger_fall) {
                     // Operator explicitly commanded the robot to fall/collapse -- reuse the exact
@@ -2454,9 +3375,39 @@
                 if (data.rotation && data.rotation.turn && data.rotation.turn !== 'none') {
                     const deg = data.rotation.angle_degrees || 90;
                     const dir = data.rotation.turn === 'clockwise' ? 1 : -1;
-                    targetHeading += dir * THREE.MathUtils.degToRad(deg);
+                    if (!walkAroundRequested) {
+                        targetHeading += dir * THREE.MathUtils.degToRad(deg);
+                        rotationApplied = true;
+                        log.innerHTML += `<br>[TURN]: Rotating ${data.rotation.turn} ${deg.toFixed(0)}°.`;
+                    }
+                }
+
+                const explicitWorldHeading = explicitWorldHeadingFromCommand(commandText);
+                if (explicitWorldHeading !== null && !walkAroundRequested) {
+                    setTargetHeadingShortest(explicitWorldHeading);
                     rotationApplied = true;
-                    log.innerHTML += `<br>[TURN]: Rotating ${data.rotation.turn} ${deg.toFixed(0)}°.`;
+                    log.innerHTML += `<br>[NAV]: Applying explicit world heading from operator command.`;
+                }
+                if (
+                    commandExplicitlyAvoidsObstacles(commandText) &&
+                    !rotationApplied &&
+                    explicitWorldHeading === null &&
+                    !walkAroundRequested
+                ) {
+                    targetHeading += Math.PI;
+                    rotationApplied = true;
+                    log.innerHTML += `<br>[NAV]: Turning away from the obstacle route as explicitly requested.`;
+                }
+                const obstacleGuidanceSuppressed = updateObstaclePathfindingPolicy(
+                    commandText,
+                    targetHeading,
+                    rotationApplied
+                );
+                if (obstacleGuidanceSuppressed) {
+                    explicitAwayResumeSpeed = sanitizeLipVelocity(
+                        Math.max(data.velocity !== undefined ? data.velocity : 0.75, 0.65),
+                        'walk'
+                    );
                 }
 
                 const requestedObstacleIsCurrent = Boolean(
@@ -2468,7 +3419,22 @@
                     const action = data.obstacle_action || 'none';
                     const validActions = OBSTACLE_CLEAR_ACTIONS[requestedObstacle.type] || [];
 
-                    if (validActions.includes(action)) {
+                    if (obstacleGuidanceSuppressed && !walkAroundRequested) {
+                        movementState = 'walk';
+                        targetVelocity = explicitAwayResumeSpeed;
+                        targetStepFrequency = Math.max(targetStepFrequency, 1.4);
+                        targetCOMYOffset = 0;
+                        setCommandPelvicFromPitchRoll(0, 0);
+                        log.innerHTML += `<br>[NAV]: Hazard action withheld while the robot turns away from the obstacle route.`;
+                    } else if (walkAroundRequested) {
+                        movementState = 'walk';
+                        targetVelocity = sanitizeLipVelocity(
+                            Math.max(data.velocity !== undefined ? data.velocity : DETOUR_SPEED, DETOUR_SPEED),
+                            movementState
+                        );
+                        movementVelocity = Math.min(Math.max(movementVelocity, 0.25), targetVelocity);
+                        beginObstacleDetour(requestedObstacle, commandText, commandRevision);
+                    } else if (validActions.includes(action)) {
                         const resolvedObstacle = requestedObstacle;
                         markObstacleCleared(resolvedObstacle);
                         activeObstacle = null;
@@ -2488,8 +3454,12 @@
                             activeClimbHeight = resolvedObstacle.type === 'boulder' ? 1.0 : 0.65;
                         } else if (action === 'slide') {
                             isSliding = true;
+                            isTerrainAssistedSlide = false;
                             slideStartTime = clock.elapsedTime;
                             slideControlRevision = commandRevision;
+                            activeSlideDuration = SLIDE_DURATION;
+                            activeSlideDrop = SLIDE_DROP;
+                            activeSlideForwardSpeed = SLIDE_FORWARD_SPEED;
                         } else if (action === 'sidestep_left') {
                             sidestepSign = -1;
                             sidestepTimer = Math.abs(data.lateral_shift || 1.4) / SIDESTEP_SPEED;
@@ -2528,8 +3498,12 @@
                     if (targetVelocity < JUMP_FORWARD_SPEED * 0.5) targetVelocity = sanitizeLipVelocity(JUMP_FORWARD_SPEED * 0.6, movementState);
                 } else if (movementState === 'slide' && !isSliding) {
                     isSliding = true;
+                    isTerrainAssistedSlide = false;
                     slideStartTime = clock.elapsedTime;
                     slideControlRevision = commandRevision;
+                    activeSlideDuration = SLIDE_DURATION;
+                    activeSlideDrop = SLIDE_DROP;
+                    activeSlideForwardSpeed = SLIDE_FORWARD_SPEED;
                     if (targetVelocity < SLIDE_FORWARD_SPEED * 0.5) targetVelocity = sanitizeLipVelocity(SLIDE_FORWARD_SPEED * 0.6, movementState);
                 }
 
@@ -2557,6 +3531,7 @@
                 isPipelineBusy = false;
                 shimmerHud.classList.add('hidden');
                 executeBtn.disabled = false;
+                updateReturnObstacleButton();
             }
         }
 
@@ -2709,6 +3684,11 @@
         }
 
         function checkObstacleProximity() {
+            if (obstacleDetour) {
+                updateObstacleHud();
+                return;
+            }
+
             if (activeObstacle && !activeObstacle.cleared) {
                 const { forwardDist, lateralDist } = relativeLocal(activeObstacle);
                 const stillBlocking = forwardDist >= -0.3 && forwardDist < DETECTION_RANGE + 1.0 && Math.abs(lateralDist) < LANE_WIDTH;
@@ -2723,6 +3703,11 @@
                 } else {
                     document.getElementById('diagnostic-log').innerHTML += `<br>[DETOUR]: Hazard no longer blocking path.`;
                     activeObstacle = null;
+                    if (!obstaclePathfindingEnabled && explicitAwayResumeSpeed > 0) {
+                        movementState = 'walk';
+                        targetVelocity = explicitAwayResumeSpeed;
+                        targetStepFrequency = Math.max(targetStepFrequency, 1.4);
+                    }
                     document.getElementById('hazard-hud').classList.add('hidden');
                     updateObstacleHud();
                 }
@@ -2774,10 +3759,60 @@
             if (isSliding) {
                 // Low ground-hugging slide pose: lead leg stretched out front (shallow knee bend),
                 // trail leg tucked back underneath (deep knee bend), arms swept back for balance --
-                // the vertical dip itself comes from slideArc in the main loop, not from this pose.
-                leftHip.rotation.x = -0.85; rightHip.rotation.x = 0.7;
-                leftKnee.rotation.x = 0.15; rightKnee.rotation.x = 1.5;
-                leftShoulder.rotation.x = 1.0; rightShoulder.rotation.x = -0.5;
+                // the sin-squared envelope eases both into and out of that pose with zero endpoint
+                // velocity, matching the vertical descent envelope in the main loop.
+                const slideProgress = THREE.MathUtils.clamp(
+                    (elapsedTime - slideStartTime) / activeSlideDuration,
+                    0,
+                    1
+                );
+                const slidePoseBlend = Math.pow(
+                    Math.sin(slideProgress * Math.PI),
+                    2
+                );
+                const transitionFrequency = Math.max(globalStepFrequency, 1.4);
+                gaitPhase += transitionFrequency * dt * 2.0;
+                const leftPhase = gaitPhase;
+                const rightPhase = leftPhase + Math.PI;
+                const baselineLeftHip = baseHip + Math.sin(leftPhase) * 0.3;
+                const baselineRightHip = baseHip + Math.sin(rightPhase) * 0.3;
+                const baselineLeftKnee =
+                    baseKnee + Math.max(0, -Math.sin(leftPhase)) * 0.55;
+                const baselineRightKnee =
+                    baseKnee + Math.max(0, -Math.sin(rightPhase)) * 0.55;
+                const baselineLeftShoulder = -Math.sin(leftPhase) * 0.35;
+                const baselineRightShoulder = -Math.sin(rightPhase) * 0.35;
+
+                leftHip.rotation.x = THREE.MathUtils.lerp(
+                    baselineLeftHip,
+                    -0.85,
+                    slidePoseBlend
+                );
+                rightHip.rotation.x = THREE.MathUtils.lerp(
+                    baselineRightHip,
+                    0.7,
+                    slidePoseBlend
+                );
+                leftKnee.rotation.x = THREE.MathUtils.lerp(
+                    baselineLeftKnee,
+                    0.15,
+                    slidePoseBlend
+                );
+                rightKnee.rotation.x = THREE.MathUtils.lerp(
+                    baselineRightKnee,
+                    1.5,
+                    slidePoseBlend
+                );
+                leftShoulder.rotation.x = THREE.MathUtils.lerp(
+                    baselineLeftShoulder,
+                    1.0,
+                    slidePoseBlend
+                );
+                rightShoulder.rotation.x = THREE.MathUtils.lerp(
+                    baselineRightShoulder,
+                    -0.5,
+                    slidePoseBlend
+                );
                 return;
             }
 
@@ -2827,7 +3862,7 @@
             const dt = Math.min(clock.getDelta() || 0.016, 0.05);
             const elapsedTime = clock.elapsedTime;
 
-            if (!isFallen && !isRecovering) {
+            if (!isRobotIncapacitated()) {
                 checkObstacleProximity();
             }
 
@@ -2846,17 +3881,21 @@
             // reads last frame's severity reading -- one frame of lag, well under a rendered frame's
             // worth of travel -- rather than reordering the existing position/slope-sampling pipeline.
             const terrainSpeedMultiplier = 1 - terrainSlopeSeverity * MAX_TERRAIN_SPEED_PENALTY;
-            const desiredVelocity = (isFallen || isRecovering) ? 0 : targetVelocity * terrainSpeedMultiplier;
+            const desiredVelocity = isRobotIncapacitated() ? 0 : targetVelocity * terrainSpeedMultiplier;
             const speedError = desiredVelocity - movementVelocity;
             const speedStep = THREE.MathUtils.clamp(speedError, -MAX_LIP_ACCEL * dt, MAX_LIP_ACCEL * dt);
             movementVelocity += speedStep;
 
             globalStepFrequency = THREE.MathUtils.lerp(globalStepFrequency, targetStepFrequency, 0.05);
-            currentHeading = THREE.MathUtils.lerp(currentHeading, targetHeading, 0.06);
+            updateObstacleDetour();
+            applyObstaclePathfinding(dt);
+            currentHeading +=
+                normalizeHeadingAngle(targetHeading - currentHeading) *
+                headingResponseForDelta(dt);
 
             let jumpArc = 0, climbArc = 0, slideArc = 0;
             let forcedSpeed = null;
-            if (!isFallen && !isRecovering) {
+            if (!isRobotIncapacitated()) {
                 if (isJumping) {
                     const t = (elapsedTime - jumpStartTime) / JUMP_DURATION;
                     if (t >= 1) {
@@ -2887,24 +3926,45 @@
                     }
                 }
                 if (isSliding) {
-                    const t = (elapsedTime - slideStartTime) / SLIDE_DURATION;
+                    const t = (elapsedTime - slideStartTime) / activeSlideDuration;
                     if (t >= 1) {
                         const completedRevision = slideControlRevision;
+                        const completedTerrainSlide = isTerrainAssistedSlide;
                         isSliding = false;
                         slideControlRevision = -1;
-                        resumeForwardTraversalAfterManeuver(completedRevision, 'Slide');
+                        isTerrainAssistedSlide = false;
+                        activeSlideDuration = SLIDE_DURATION;
+                        activeSlideDrop = SLIDE_DROP;
+                        activeSlideForwardSpeed = SLIDE_FORWARD_SPEED;
+                        resumeForwardTraversalAfterManeuver(
+                            completedRevision,
+                            completedTerrainSlide ? 'Mountain descent slide' : 'Slide'
+                        );
                     }
-                    else { slideArc = -Math.sin(Math.min(1, Math.max(0, t)) * Math.PI) * SLIDE_DROP; forcedSpeed = SLIDE_FORWARD_SPEED; }
+                    else {
+                        slideArc = -Math.pow(
+                            Math.sin(Math.min(1, Math.max(0, t)) * Math.PI),
+                            2
+                        ) * activeSlideDrop;
+                        forcedSpeed = activeSlideForwardSpeed;
+                    }
                 }
             }
 
-            const effectiveSpeed = forcedSpeed !== null ? forcedSpeed : movementVelocity;
-            if (!isFallen && !isRecovering && (movementState !== 'idle' || forcedSpeed !== null) && effectiveSpeed > 0) {
+            const detourTurningInPlace = Boolean(
+                obstacleDetour &&
+                (obstacleDetour.phase === 'turn_out' ||
+                    obstacleDetour.phase === 'turn_pass' ||
+                    obstacleDetour.phase === 'turn_in' ||
+                    obstacleDetour.phase === 'turn_restore')
+            );
+            const effectiveSpeed = detourTurningInPlace ? 0 : forcedSpeed !== null ? forcedSpeed : movementVelocity;
+            if (!isRobotIncapacitated() && (movementState !== 'idle' || forcedSpeed !== null) && effectiveSpeed > 0) {
                 const Fx = Math.sin(currentHeading), Fz = -Math.cos(currentHeading);
                 robotPos.x += Fx * effectiveSpeed * dt * SPEED_SCALE;
                 robotPos.z += Fz * effectiveSpeed * dt * SPEED_SCALE;
             }
-            if (!isFallen && !isRecovering && sidestepTimer > 0) {
+            if (!isRobotIncapacitated() && sidestepTimer > 0) {
                 const Rx = Math.cos(currentHeading), Rz = Math.sin(currentHeading);
                 robotPos.x += Rx * sidestepSign * SIDESTEP_SPEED * dt;
                 robotPos.z += Rz * sidestepSign * SIDESTEP_SPEED * dt;
@@ -2916,10 +3976,43 @@
                     resumeForwardTraversalAfterManeuver(completedRevision, 'Sidestep');
                 }
             }
-            robotPos.x = THREE.MathUtils.clamp(robotPos.x, -27, 27);
-            robotPos.z = THREE.MathUtils.clamp(robotPos.z, -27, 27);
+            if (
+                !isRobotIncapacitated() &&
+                (
+                    Math.abs(robotPos.x) >= VOID_TRIGGER_BOUNDARY ||
+                    Math.abs(robotPos.z) >= VOID_TRIGGER_BOUNDARY
+                )
+            ) {
+                triggerVoidFall(effectiveSpeed);
+            }
 
             if (humanoidGroup) {
+                if (isVoided) {
+                    const voidElapsed = Math.max(0, elapsedTime - voidStartTime);
+                    const horizontalDecay = Math.exp(-0.32 * dt);
+                    voidHorizontalVelocityX *= horizontalDecay;
+                    voidHorizontalVelocityZ *= horizontalDecay;
+                    robotPos.x += voidHorizontalVelocityX * dt;
+                    robotPos.z += voidHorizontalVelocityZ * dt;
+                    voidVerticalVelocity += VOID_GRAVITY * dt;
+                    voidWorldY -= voidVerticalVelocity * dt;
+
+                    const tipProgress = THREE.MathUtils.clamp(voidElapsed / 0.55, 0, 1);
+                    const tipAngle = (1 - Math.pow(1 - tipProgress, 3)) * THREE.MathUtils.degToRad(72);
+                    const tumble = Math.max(0, voidElapsed - 0.25) * 0.9;
+                    const descentTilt = tipAngle + tumble * 0.35;
+                    const crossTumble = tumble * 0.12;
+                    humanoidGroup.position.set(robotPos.x, voidWorldY, robotPos.z);
+                    humanoidGroup.rotation.y = currentHeading + tumble * 0.28 * voidEdgeSign;
+                    humanoidGroup.rotation.x =
+                        voidLocalPitchFactor * descentTilt +
+                        voidLocalRollFactor * crossTumble;
+                    humanoidGroup.rotation.z =
+                        voidLocalRollFactor * descentTilt -
+                        voidLocalPitchFactor * crossTumble;
+                    if (captureIndicator) captureIndicator.visible = false;
+                } else {
+                if (captureIndicator) captureIndicator.visible = true;
                 let activeTerrainProfile = document.getElementById('terrain-selector').value;
                 let groundAltitude = calculateGroundMathHeight(robotPos.x, robotPos.z, activeTerrainProfile);
 
@@ -2944,7 +4037,27 @@
                 terrainSlopeSeverity = THREE.MathUtils.clamp(
                     (steepestTilt - COMFORTABLE_TILT) / (MAX_RECOVERABLE_TILT - COMFORTABLE_TILT), 0, 1
                 );
-                if (!isFallen && !isRecovering && !isClimbing && elapsedTime >= terrainFallGraceUntil) {
+                if (
+                    !isRobotIncapacitated() &&
+                    !isClimbing &&
+                    !isSliding &&
+                    !isJumping &&
+                    sidestepTimer <= 0 &&
+                    !obstacleDetour &&
+                    effectiveSpeed > 0.1 &&
+                    elapsedTime >= terrainSlideCooldownUntil
+                ) {
+                    beginTerrainAssistedSlide(findNearbySlidableDescent(activeTerrainProfile));
+                }
+                if (
+                    !isRobotIncapacitated() &&
+                    !isClimbing &&
+                    !isSliding &&
+                    !isJumping &&
+                    sidestepTimer <= 0 &&
+                    !obstacleDetour &&
+                    elapsedTime >= terrainFallGraceUntil
+                ) {
                     if (steepestTilt > MAX_RECOVERABLE_TILT) {
                         const ledge = elapsedTime >= terrainClimbCooldownUntil
                             ? findNearbyClimbableLedge(activeTerrainProfile)
@@ -2981,6 +4094,7 @@
                             isRecovering = false;
                             lieAngle = 0;
                             document.getElementById('telemetry-state').textContent = 'IDLE (STANDING)';
+                            updateReturnObstacleButton();
                         } else {
                             const eased = 1 - Math.pow(1 - t, 3);
                             lieAngle = FALL_TARGET_ANGLE * (1 - eased);
@@ -3059,6 +4173,7 @@
                 }
 
                 updateGait(elapsedTime, dt);
+                }
             }
 
             updateObstacleVisuals(elapsedTime);
@@ -3069,8 +4184,8 @@
             if (zmpHUD) {
                 let stabilityFluctuation = movementState === 'idle' ? 0.3 : movementState === 'walk' ? 0.8 : 2.5;
                 let stumblePenalty = stumbleTimer > 0 ? stumbleTimer * 40 : 0;
-                if (isFallen || isRecovering) {
-                    zmpHUD.textContent = `${isFallen ? '0.0' : '12.0'}%`;
+                if (isFallen || isVoided || isRecovering) {
+                    zmpHUD.textContent = `${isRecovering ? '12.0' : '0.0'}%`;
                 } else {
                     const baseStability = 98.0 - (movementVelocity * 2) - stumblePenalty + Math.sin(elapsedTime * 5.0) * stabilityFluctuation;
                     zmpHUD.textContent = `${Math.min(100, Math.max(10, baseStability)).toFixed(1)}%`;

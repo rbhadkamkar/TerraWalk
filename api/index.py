@@ -65,7 +65,7 @@ VALID_OBSTACLE_ACTIONS = {
 }
 VALID_ROTATION_TURNS = {"clockwise", "counterclockwise", "none"}
 VALID_FALL_DIRECTIONS = {"forward", "backward", "left", "right", "none"}
-VALID_TERRAINS = {"flat", "ice", "rubble", "mud", "volcanic", "snow", "collapsing"}
+VALID_TERRAINS = {"flat", "ice", "rubble", "mud", "volcanic", "snow", "collapsing", "mountains"}
 VALID_OBSTACLE_TYPES = {"boulder", "crevice", "ice_patch", "debris"}
 OBSTACLE_CLEAR_ACTIONS = {
     "boulder": {"jump", "climb"},
@@ -199,7 +199,11 @@ Hazards:
 - debris: climb, sidestep_left, sidestep_right, push_through, or slide.
 - brace never clears a hazard. With no active hazard, obstacle_action must be none.
 - "walk/go around the obstacle" means a 45-degree walking detour (clockwise unless left is stated),
-  not a 180-degree reversal. "turn/spin around" means 180 degrees.
+  not a 180-degree reversal. For that request use movement_state walk, positive velocity,
+  obstacle_action none, and the requested 45-degree rotation. The browser completes the bypass and
+  returns to the original obstacle route after passing. "turn/spin around" means 180 degrees.
+- An explicit request to retreat, back away, move away from hazards, or reverse direction must use
+  movement_state walk, positive velocity, obstacle_action none, and a 180-degree rotation.
 - Jump and slide may also be standalone movement states when there is no hazard.
 
 Fall commands:
@@ -457,6 +461,156 @@ def _contains_any_phrase(text, phrases):
     return any(re.search(rf"\b{re.escape(phrase)}\b", text) for phrase in phrases)
 
 
+def _is_walk_around_detour(text):
+    if not isinstance(text, str):
+        return False
+    normalized = text.lower().strip()
+    if re.search(
+        r"\b(?:do\s+not|don['’]?t|never)\s+"
+        r"(?:(?:please|try\s+to)\s+)?"
+        r"(?:walk|go|move|route|navigate|travel|detour)\b"
+        r"[^.!?\n]{0,36}\baround\b",
+        normalized,
+    ):
+        return False
+    if _contains_any_phrase(normalized, ("turn around", "spin around", "reverse direction")):
+        return False
+    return bool(
+        re.search(
+            r"\b(?:walk|go|move|route|navigate|travel|detour)\b[^.!?\n]{0,36}\baround\b",
+            normalized,
+        )
+    )
+
+
+def _parse_numeric_turn(text):
+    if not isinstance(text, str):
+        return None
+    normalized = text.lower().strip()
+    if re.search(r"\b(?:do\s+not|don['’]?t|never)\s+(?:turn|rotate)\b", normalized):
+        return None
+
+    direction_first = re.search(
+        r"\b(?:turn|rotate)\s+"
+        r"(clockwise|counter[\s-]?clockwise|left|right)\s+"
+        r"(?:by\s+)?(\d+(?:\.\d+)?)\s*(?:degrees?|°)?\b",
+        normalized,
+    )
+    angle_first = re.search(
+        r"\b(?:turn|rotate)\s+(?:by\s+)?"
+        r"(\d+(?:\.\d+)?)\s*(?:degrees?|°)?\s+"
+        r"(clockwise|counter[\s-]?clockwise|left|right)\b",
+        normalized,
+    )
+    if direction_first:
+        raw_direction, raw_angle = direction_first.groups()
+    elif angle_first:
+        raw_angle, raw_direction = angle_first.groups()
+    else:
+        return None
+
+    normalized_direction = raw_direction.replace(" ", "").replace("-", "")
+    turn = (
+        "counterclockwise"
+        if normalized_direction in {"counterclockwise", "left"}
+        else "clockwise"
+    )
+    return turn, _clip(_safe_float(raw_angle), ROTATION_ANGLE_MIN, ROTATION_ANGLE_MAX)
+
+
+def _is_explicit_away_command(text):
+    if not isinstance(text, str):
+        return False
+    normalized = text.lower().strip()
+    if re.search(
+        r"\b(?:do\s+not|don['’]?t|never)\s+"
+        r"(?:(?:please|try\s+to)\s+)?"
+        r"(?:(?:walk|go|move|head|run|back)\s+away|"
+        r"(?:walk|go|move)\s+backwards?|"
+        r"retreat|flee|escape|withdraw|"
+        r"avoid(?:\s+(?:the\s+)?(?:obstacle|obstacles|hazard|hazards))?|"
+        r"steer\s+clear(?:\s+of\s+(?:the\s+)?(?:obstacle|obstacles|hazard|hazards))?|"
+        r"(?:keep|stay)\s+away|"
+        r"(?:leave|exit)\s+(?:the\s+)?(?:obstacle|hazard|course|route|area)|"
+        r"(?:turn|spin)\s+around|reverse(?:\s+direction)?)\b",
+        normalized,
+    ):
+        return False
+    numeric_turn = _parse_numeric_turn(normalized)
+    if numeric_turn and 150.0 <= numeric_turn[1] <= 210.0:
+        return True
+    return bool(
+        re.search(
+            r"\b(?:retreat|flee|escape|withdraw|reverse(?:\s+direction)?|"
+            r"(?:walk|go|move|head|run|back)\s+away|"
+            r"(?:keep|stay)\s+away(?:\s+from\s+(?:the\s+)?(?:obstacle|obstacles|hazard|hazards|them))?|"
+            r"avoid\s+(?:the\s+)?(?:obstacle|obstacles|hazard|hazards)|"
+            r"steer\s+clear\s+of\s+(?:the\s+)?(?:obstacle|obstacles|hazard|hazards)|"
+            r"(?:leave|exit)\s+(?:the\s+)?(?:obstacle|hazard|course|route|area)|"
+            r"(?:walk|go|move)\s+backwards?|"
+            r"(?:turn|spin)\s+around)\b",
+            normalized,
+        )
+    )
+
+
+def _apply_command_semantic_overrides(matrix, command, obstacle_type):
+    """Applies narrow, deterministic intent rules after either controller path.
+
+    The browser owns world-space detour waypoints, but it needs a consistent walking
+    response from both Groq and the local fallback. This override prevents an explicit
+    walk-around request from being converted into a jump, climb, or slide merely
+    because a particular hazard type is active.
+    """
+    explicit_detour = bool(obstacle_type and _is_walk_around_detour(command))
+    explicit_away = bool(obstacle_type and _is_explicit_away_command(command))
+    if not explicit_detour and not explicit_away:
+        return matrix
+
+    text = command.lower()
+    numeric_turn = _parse_numeric_turn(text) if explicit_away and not explicit_detour else None
+    if numeric_turn:
+        turn, turn_angle = numeric_turn
+    else:
+        turn = (
+            "counterclockwise"
+            if explicit_detour and "left" in text and "right" not in text
+            else "clockwise"
+        )
+        turn_angle = 45.0 if explicit_detour else 180.0
+    detour_matrix = dict(matrix) if isinstance(matrix, dict) else {}
+    detour_matrix.update(
+        {
+            "movement_state": "walk",
+            "velocity": max(_safe_float(detour_matrix.get("velocity"), 0.8), 0.8),
+            "step_frequency": max(
+                _safe_float(detour_matrix.get("step_frequency"), 1.5),
+                1.4,
+            ),
+            "target_pelvic_quaternion": _posture_quaternion(),
+            "obstacle_action": "none",
+            "lateral_shift": 0.0,
+            "rotation": {"turn": turn, "angle_degrees": turn_angle},
+            "trigger_fall": False,
+            "fall_direction": "none",
+            "biomechanical_rationale": (
+                "A controlled 45-degree walking bypass will clear the hazard and rejoin the obstacle route."
+                if explicit_detour
+                else "The robot will turn away and retreat without attempting to clear the active hazard."
+            ),
+        }
+    )
+    com_shift = detour_matrix.get("center_of_mass_shift")
+    if not isinstance(com_shift, dict):
+        com_shift = {}
+    detour_matrix["center_of_mass_shift"] = {
+        "x": _safe_float(com_shift.get("x"), 0.0),
+        "y": 0.0,
+        "z": _safe_float(com_shift.get("z"), 0.08),
+    }
+    return sanitize_kinematic_matrix(detour_matrix, obstacle_type)
+
+
 def _posture_quaternion(pitch=0.0, roll=0.0):
     cp = math.cos(pitch / 2.0)
     sp = math.sin(pitch / 2.0)
@@ -492,15 +646,32 @@ def build_deterministic_kinematic_matrix(command, terrain, friction, angle, obst
 
     turn = "none"
     turn_angle = 0.0
-    if _contains_any_phrase(text, ("turn around", "spin around", "reverse direction")):
+    explicit_detour = bool(obstacle_type and _is_walk_around_detour(text))
+    numeric_turn = _parse_numeric_turn(text)
+    turn_is_negated = bool(
+        re.search(
+            r"\b(?:do\s+not|don['’]?t|never)\s+"
+            r"(?:(?:please|try\s+to)\s+)?"
+            r"(?:turn|rotate|go|move|walk|head)\s+"
+            r"(?:to\s+the\s+)?(?:left|right)\b",
+            text,
+        )
+    )
+    if _is_explicit_away_command(text):
         turn = "clockwise"
         turn_angle = 180.0
-    elif "turn left" in text or "go left" in text:
+        if numeric_turn:
+            turn, turn_angle = numeric_turn
+    elif numeric_turn:
+        turn, turn_angle = numeric_turn
+    elif not turn_is_negated and ("turn left" in text or "go left" in text):
         turn = "counterclockwise"
         turn_angle = 45.0
-    elif "turn right" in text or "go right" in text or "go around" in text or "walk around" in text:
+    elif not turn_is_negated and ("turn right" in text or "go right" in text or explicit_detour):
         turn = "clockwise"
         turn_angle = 45.0
+    if explicit_detour and "left" in text and "right" not in text:
+        turn = "counterclockwise"
 
     fall_direction = "none"
     if explicit_fall:
@@ -532,6 +703,11 @@ def build_deterministic_kinematic_matrix(command, terrain, friction, angle, obst
         obstacle_action = "brace" if obstacle_type else "none"
         velocity = 0.0
         step_frequency = STEP_FREQUENCY_MIN
+    elif explicit_detour:
+        movement_state = "walk"
+        obstacle_action = "none"
+        velocity = 0.8
+        step_frequency = 1.5
     elif obstacle_type == "boulder":
         obstacle_action = "climb" if _contains_any_phrase(text, ("climb", "mount", "grip", "ledge")) else "jump"
     elif obstacle_type == "crevice":
@@ -636,7 +812,11 @@ def build_deterministic_kinematic_matrix(command, terrain, friction, angle, obst
             "Provider fallback selected a safe, deterministic maneuver for the current telemetry snapshot."
         ),
     }
-    return sanitize_kinematic_matrix(matrix, obstacle_type)
+    return _apply_command_semantic_overrides(
+        sanitize_kinematic_matrix(matrix, obstacle_type),
+        command,
+        obstacle_type,
+    )
 
 
 def _provider_failure_metadata(error):
@@ -809,7 +989,13 @@ def traverse():
             obstacle,
         )
 
-    kinematic_matrix["schema_version"] = "3.1"
+    kinematic_matrix = _apply_command_semantic_overrides(
+        kinematic_matrix,
+        command,
+        obstacle.get("type") if obstacle else None,
+    )
+
+    kinematic_matrix["schema_version"] = "3.2"
     kinematic_matrix["controller_source"] = controller_source
     if provider_warning:
         kinematic_matrix["provider_warning"] = provider_warning
@@ -863,15 +1049,23 @@ ROBOT_ASSISTANT_SYSTEM_PROMPT = (
     "and blends a deterministic compensating lean into the pelvic quaternion every frame. Below 10 degrees "
     "of tilt the robot walks normally; between 10 and 32 degrees it progressively slows down and leans into "
     "the grade. Beyond 32 degrees it first checks for a nearby climbable ledge or boulder/debris grip; when "
-    "one exists it runs the climb animation, otherwise it triggers a fall/collapse animation and comes to "
-    "rest at an 84 degree lie angle, recoverable with a reboot. Generated worlds use a safe spawn platform "
-    "and cap their initial global incline at plus/minus 18 degrees.\n"
+    "one exists it runs the climb animation. Known downhill faces on authored rubble, volcanic, and mountain "
+    "features use a smooth terrain-assisted descent slide instead of collapsing. Unsupported steep terrain "
+    "still triggers a fall and comes to rest at an 84 degree lie angle, recoverable with a reboot. The "
+    "Mountain Range biome is built primarily from climbable miniature mountains. Generated worlds use a "
+    "safe spawn platform and cap their initial global incline at plus/minus 18 degrees.\n"
     "- Hazards: a boulder or crevice can be cleared with 'jump' or 'climb'; an ice patch with 'crouch', a "
     "sidestep, or a 'slide'; debris with 'climb', a sidestep, or a 'slide'. Jump and slide each play their "
     "own dedicated animation, and both can also be issued as standalone commands (e.g. just 'jump' or "
     "'slide') even with no hazard present. Operators can also command a turn/rotation to detour around a "
     "hazard instead of tackling it head-on -- phrasing like 'walk around it' or 'go around the obstacle' is "
-    "treated as a gentle detour, distinct from 'turn around', which reverses direction 180 degrees.\n"
+    "treated as a gentle detour that passes the hazard and rejoins the obstacle route, distinct from 'turn "
+    "around', which reverses direction 180 degrees. A return control can place the robot in front of the "
+    "most recently cleared hazard without resetting progress, and gentle safety guidance steers ordinary "
+    "forward traversal toward the next uncleared hazard unless the operator explicitly directs it away.\n"
+    "- Map boundary: the rendered terrain has a real edge. Crossing it produces a gravity-driven void "
+    "descent and a distinct SYSTEM VOIDED failure instead of an invisible boundary or a tilt-overload "
+    "message. Reboot returns the robot to the safe spawn while retaining cleared-hazard progress.\n"
     "- Application stack: a Flask backend (deployed on Vercel) calls Groq's GPT-OSS 20B model (the "
     "'Kinematic Brain') to translate natural-language traversal commands into a balance/gait JSON schema "
     "every time the operator issues a command. Three.js renders the humanoid and procedural terrain client-"
