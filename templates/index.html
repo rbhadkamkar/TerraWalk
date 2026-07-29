@@ -61,6 +61,14 @@
     <!-- Supabase JS Client Library -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
+    <!-- Isolated React UI islands for non-simulation pages -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/experience-components.css') }}">
+    <script
+        defer
+        src="{{ url_for('static', filename='js/experience-loader.js') }}"
+        data-experience-src="{{ url_for('static', filename='js/experience-components.js') }}"
+    ></script>
+
     <script>
         window.SUPABASE_URL = "{{ supabase_url }}";
         window.SUPABASE_ANON_KEY = "{{ supabase_anon_key }}";
@@ -167,34 +175,39 @@
 <body class="font-sans antialiased text-slate-200 min-h-screen flex flex-col justify-between selection:bg-brand-500 selection:text-slate-950">
 
     <!-- Global Navigation Header -->
-    <header class="fixed top-0 left-0 right-0 z-50 glass-panel border-b border-white/10 px-6 py-4 flex justify-between items-center transition-all duration-300">
-        <div class="flex items-center space-x-3 cursor-pointer" onclick="switchView('landing')">
+    <header class="fixed top-0 left-0 right-0 z-50 glass-panel border-b border-white/10 px-3 sm:px-6 py-4 flex justify-between items-center gap-2 transition-all duration-300">
+        <button type="button" class="flex items-center space-x-3 flex-shrink-0 text-left" onclick="switchView('landing')" aria-label="Return to TerraWalk home">
             <div class="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/50 flex items-center justify-center text-emerald-400 font-bold text-lg shadow-[0_0_15px_rgba(16,185,129,0.3)]">
                 T
             </div>
-            <div>
+            <div class="hidden sm:block">
                 <span class="text-base font-extrabold tracking-widest bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 via-teal-200 to-cyan-400">TERRAWALK AI</span>
                 <span class="block text-[9px] font-mono tracking-wider text-slate-400 uppercase">Kinematic Brain Engine v1.0</span>
             </div>
-        </div>
+        </button>
 
         <!-- Navigation items -->
-        <nav class="hidden md:flex items-center space-x-8 text-xs font-semibold tracking-wider text-slate-400 uppercase">
+        <nav class="hidden xl:flex items-center space-x-8 text-xs font-semibold tracking-wider text-slate-400 uppercase" aria-label="Primary navigation">
             <a href="#showcase" class="hover:text-emerald-400 transition-colors" onclick="switchView('landing')">Product</a>
             <a href="#kinematics" class="hover:text-emerald-400 transition-colors" onclick="switchView('landing')">Architecture</a>
-            <a href="#features" class="hover:text-emerald-400 transition-colors" onclick="switchView('landing')">SIP Model</a>
-            <a href="javascript:void(0)" class="hover:text-emerald-400 transition-colors" onclick="switchView('info')">Robot Systems</a>
+            <button type="button" class="hover:text-cyan-400 transition-colors uppercase" onclick="switchView('pipeline')">Pipeline</button>
+            <button type="button" class="hover:text-emerald-400 transition-colors uppercase" onclick="switchView('info')">Robot Systems</button>
         </nav>
 
-        <div class="flex items-center space-x-4">
+        <nav class="flex xl:hidden items-center gap-1 text-[9px] sm:text-[10px] font-semibold tracking-wider text-slate-400 uppercase" aria-label="Compact navigation">
+            <button type="button" class="px-2 py-2 rounded-lg hover:bg-cyan-500/10 hover:text-cyan-300 transition-colors" onclick="switchView('pipeline')">Pipeline</button>
+            <button type="button" class="px-2 py-2 rounded-lg hover:bg-emerald-500/10 hover:text-emerald-300 transition-colors" onclick="switchView('info')">Systems</button>
+        </nav>
+
+        <div class="flex items-center space-x-2 sm:space-x-4 flex-shrink-0">
             <!-- Connection Status Badge -->
-            <div id="connection-badge" class="px-3 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-full text-[10px] font-mono tracking-wider animate-pulse flex items-center space-x-2">
+            <div id="connection-badge" class="hidden 2xl:flex px-3 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-full text-[10px] font-mono tracking-wider animate-pulse items-center space-x-2">
                 <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping"></span>
                 <span>INITIALIZING HANDSHAKE...</span>
             </div>
 
             <!-- Dynamic Auth State Header Section -->
-            <div id="auth-header-container" class="flex items-center space-x-3">
+            <div id="auth-header-container" class="hidden lg:flex items-center space-x-3">
                 <button id="sign-in-nav-btn" onclick="openAuthModal('login')" class="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-slate-300 hover:text-white border border-slate-700/60 rounded-lg hover:border-slate-500 transition-all">
                     Sign In
                 </button>
@@ -207,8 +220,9 @@
                 </button>
             </div>
 
-            <button onclick="switchView('dashboard')" class="px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-bold text-xs rounded-lg uppercase tracking-wider shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all transform hover:scale-[1.02] active:scale-[0.98]">
-                Launch Console
+            <button onclick="switchView('dashboard')" class="px-3 sm:px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-bold text-[10px] sm:text-xs rounded-lg uppercase tracking-wider shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all transform hover:scale-[1.02] active:scale-[0.98]">
+                <span class="hidden sm:inline">Launch Console</span>
+                <span class="sm:hidden">Console</span>
             </button>
         </div>
     </header>
@@ -231,7 +245,7 @@
                     </span>
                 </h1>
                 <p class="text-slate-400 text-sm md:text-base leading-relaxed max-w-xl">
-                    TerraWalk AI maps complex high-level natural language instructions directly into dynamically balanced 3D kinematic balance quaternions and real-time Zero-Moment Point (ZMP) trajectories across extreme, hazardous terrains.
+                    TerraWalk AI maps complex high-level natural language instructions into bounded 3D balance quaternions, capture-point targets, and terrain-aware traversal states across extreme, hazardous environments.
                 </p>
                 <div class="flex flex-wrap gap-4 pt-2">
                     <button onclick="switchView('dashboard')" class="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs uppercase tracking-wider rounded-xl shadow-[0_0_25px_rgba(16,185,129,0.4)] transition-all">
@@ -265,36 +279,81 @@
         <section id="kinematics" class="max-w-7xl mx-auto px-6 py-20 space-y-16 relative z-10">
             <div class="text-center space-y-3 max-w-2xl mx-auto">
                 <h2 class="text-xs font-mono text-emerald-400 uppercase tracking-widest">Next-Gen Robotics Engine</h2>
-                <p class="text-3xl font-bold text-white tracking-tight">Engineered for Hazardous Traversal</p>
-                <p class="text-xs text-slate-400">Explore how our Spherical Inverted Pendulum model handles extreme slopes, ice, rubble, and active hazards.</p>
+                <div
+                    class="react-bits-root"
+                    data-react-bits="scroll-float"
+                    data-text="Engineered for Hazardous Traversal"
+                    data-container-class="scroll-float--landing"
+                    data-animation-duration="1"
+                    data-stagger="0.018"
+                >
+                    <h2 class="react-bits-fallback text-3xl font-bold text-white tracking-tight">Engineered for Hazardous Traversal</h2>
+                </div>
+                <div
+                    class="react-bits-root"
+                    data-react-bits="scroll-reveal"
+                    data-text="Sense the terrain, validate every movement vector, and preserve balance across extreme slopes, ice, rubble, and active hazards."
+                    data-container-class="scroll-reveal--compact"
+                    data-base-opacity="0.16"
+                    data-base-rotation="1.5"
+                    data-blur-strength="4"
+                >
+                    <p class="react-bits-fallback text-xs text-slate-400">Sense the terrain, validate every movement vector, and preserve balance across extreme slopes, ice, rubble, and active hazards.</p>
+                </div>
             </div>
 
-            <div class="grid md:grid-cols-3 gap-8">
-                <!-- Feature Card 1 -->
-                <div class="glass-card p-6 rounded-2xl border border-white/5 hover:border-emerald-500/40 transition-all duration-300 transform hover:-translate-y-1 space-y-4">
-                    <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-mono text-sm">01</div>
-                    <h3 class="text-base font-bold text-white">Spherical Inverted Pendulum</h3>
-                    <p class="text-xs text-slate-400 leading-relaxed">
-                        Torso and pelvic balance mapped into unit quaternions for smooth, gimbal-lock-free postural adjustments over steep ground slopes.
-                    </p>
-                </div>
+            <div
+                class="experience-stack-root"
+                data-react-bits="scroll-stack"
+                data-aria-label="TerraWalk architecture layers"
+                data-item-distance="92"
+                data-item-stack-distance="28"
+                data-base-scale="0.89"
+                data-blur-amount="0.35"
+                data-rotation-amount="0.25"
+            >
+                <div class="react-bits-fallback grid md:grid-cols-3 gap-8">
+                    <!-- Feature Card 1 -->
+                    <div
+                        data-scroll-stack-card
+                        data-card-key="landing-sip"
+                        data-item-class="stack-card--emerald"
+                        class="glass-card p-6 rounded-2xl border border-white/5 hover:border-emerald-500/40 transition-all duration-300 transform hover:-translate-y-1 space-y-4"
+                    >
+                        <div class="stack-card-kicker">01 // Balance</div>
+                        <h3 class="stack-card-title">Spherical Inverted Pendulum</h3>
+                        <p class="stack-card-copy">
+                            Torso and pelvic balance map into unit quaternions for smooth, gimbal-lock-free postural adjustments over steep ground slopes.
+                        </p>
+                    </div>
 
-                <!-- Feature Card 2 -->
-                <div class="glass-card p-6 rounded-2xl border border-white/5 hover:border-cyan-500/40 transition-all duration-300 transform hover:-translate-y-1 space-y-4">
-                    <div class="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 font-mono text-sm">02</div>
-                    <h3 class="text-base font-bold text-white">Groq Neural Traversal</h3>
-                    <p class="text-xs text-slate-400 leading-relaxed">
-                        High-speed LLM inference converts natural voice commands directly into biomechanical gait vectors and hazard avoidance routines.
-                    </p>
-                </div>
+                    <!-- Feature Card 2 -->
+                    <div
+                        data-scroll-stack-card
+                        data-card-key="landing-groq"
+                        data-item-class="stack-card--cyan"
+                        class="glass-card p-6 rounded-2xl border border-white/5 hover:border-cyan-500/40 transition-all duration-300 transform hover:-translate-y-1 space-y-4"
+                    >
+                        <div class="stack-card-kicker text-cyan-400">02 // Decide</div>
+                        <h3 class="stack-card-title">Groq Neural Traversal</h3>
+                        <p class="stack-card-copy">
+                            High-speed inference converts natural voice and text commands into biomechanical gait vectors and hazard-aware actions.
+                        </p>
+                    </div>
 
-                <!-- Feature Card 3 -->
-                <div class="glass-card p-6 rounded-2xl border border-white/5 hover:border-teal-500/40 transition-all duration-300 transform hover:-translate-y-1 space-y-4">
-                    <div class="w-10 h-10 rounded-xl bg-teal-500/10 border border-teal-500/30 flex items-center justify-center text-teal-400 font-mono text-sm">03</div>
-                    <h3 class="text-base font-bold text-white">ZMP Capture Projection</h3>
-                    <p class="text-xs text-slate-400 leading-relaxed">
-                        Continuous calculated capture-point projection ensures real-time zero-moment stability, avoiding fall scenarios during jumping or climbing.
-                    </p>
+                    <!-- Feature Card 3 -->
+                    <div
+                        data-scroll-stack-card
+                        data-card-key="landing-zmp"
+                        data-item-class="stack-card--rose"
+                        class="glass-card p-6 rounded-2xl border border-white/5 hover:border-teal-500/40 transition-all duration-300 transform hover:-translate-y-1 space-y-4"
+                    >
+                        <div class="stack-card-kicker text-rose-400">03 // Stabilize</div>
+                        <h3 class="stack-card-title">Capture-Point Telemetry</h3>
+                        <p class="stack-card-copy">
+                            Each accepted command supplies a bounded capture-point target. The renderer interpolates the red ground marker to that target while local terrain logic independently governs slides and falls.
+                        </p>
+                    </div>
                 </div>
             </div>
         </section>
@@ -425,7 +484,7 @@
             <section class="flex-1 glass-panel rounded-2xl flex flex-col relative min-h-0 overflow-hidden border border-white/10">
                 <!-- HUD Overlay top label -->
                 <div class="absolute top-4 left-4 z-10 glass-card px-3 py-1.5 rounded-lg text-[10px] text-slate-300 font-mono tracking-wider uppercase flex items-center space-x-2">
-                    <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+                    <span class="w-2 h-2 rounded-full bg-cyan-400 motion-safe:animate-pulse"></span>
                     <span>Primary Simulation Viewport</span>
                 </div>
 
@@ -458,7 +517,7 @@
                     <!-- Numerical Telemetry Readouts -->
                     <div class="glass-card p-3.5 text-[10px] text-slate-400 tracking-wider font-mono rounded-xl space-y-1 min-w-[260px] border border-white/10 pointer-events-auto">
                         <div class="text-emerald-400 font-bold border-b border-white/10 pb-1 mb-1">LIVE TELEMETRY READOUTS</div>
-                        <div class="flex justify-between"><span>ZMP Stability Index:</span> <span id="telemetry-zmp" class="text-emerald-400 font-bold">98.4%</span></div>
+                        <div class="flex justify-between"><span>Motion Stability Estimate:</span> <span id="telemetry-zmp" class="text-emerald-400 font-bold">98.4%</span></div>
                         <div class="flex justify-between"><span>Traversal Loop:</span> <span id="telemetry-state" class="text-slate-200">IDLE (STANDING)</span></div>
                         <div class="flex justify-between"><span>Step Frequency:</span> <span id="telemetry-freq" class="text-slate-200">0.00 Hz</span></div>
                         <div class="flex justify-between"><span>Torque Ankle/Knee:</span> <span id="telemetry-torque" class="text-slate-200">0.00 / 0.00 Nm</span></div>
@@ -525,15 +584,15 @@
                 <div class="reveal-on-scroll">
                     <div class="glass-panel rounded-3xl border border-white/10 p-3">
                         <div class="relative rounded-2xl overflow-hidden cursor-zoom-in group" onclick="openRobotLightbox()">
-                            <img id="robot-diagram-img" alt="Annotated humanoid robot diagram showing the sensor head, pelvic IMU, shoulder actuator, ankle actuator, ZMP capture-point marker, and stability support boundary" class="block w-full aspect-[756/678] transition-transform duration-500 group-hover:scale-[1.03]">
+                            <img id="robot-diagram-img" alt="Annotated humanoid robot diagram showing the sensor head, pelvic IMU, shoulder actuator, ankle actuator, capture-point marker, and terrain origin marker" class="block w-full aspect-[756/678] transition-transform duration-500 group-hover:scale-[1.03]">
 
                             <!-- Numbered label pins (percentages anchor to the image's own box) -->
                             <button type="button" class="diagram-pin absolute w-5 h-5 -ml-2.5 -mt-2.5 rounded-full bg-emerald-500/90 border-2 border-slate-950 text-[9px] font-bold text-slate-950 flex items-center justify-center" style="top: 23%; left: 46%;" title="Head / Sensor Array" onclick="event.stopPropagation()">1</button>
                             <button type="button" class="diagram-pin absolute w-5 h-5 -ml-2.5 -mt-2.5 rounded-full bg-emerald-500/90 border-2 border-slate-950 text-[9px] font-bold text-slate-950 flex items-center justify-center" style="top: 42%; left: 46%;" title="Pelvic IMU / SIP Origin" onclick="event.stopPropagation()">2</button>
                             <button type="button" class="diagram-pin absolute w-5 h-5 -ml-2.5 -mt-2.5 rounded-full bg-emerald-500/90 border-2 border-slate-950 text-[9px] font-bold text-slate-950 flex items-center justify-center" style="top: 29%; left: 39%;" title="Shoulder Actuator" onclick="event.stopPropagation()">3</button>
-                            <button type="button" class="diagram-pin absolute w-5 h-5 -ml-2.5 -mt-2.5 rounded-full bg-emerald-500/90 border-2 border-slate-950 text-[9px] font-bold text-slate-950 flex items-center justify-center" style="top: 56%; left: 42%;" title="Ankle Torque Actuator" onclick="event.stopPropagation()">4</button>
+                            <button type="button" class="diagram-pin absolute w-5 h-5 -ml-2.5 -mt-2.5 rounded-full bg-emerald-500/90 border-2 border-slate-950 text-[9px] font-bold text-slate-950 flex items-center justify-center" style="top: 56%; left: 42%;" title="Ankle Torque Telemetry" onclick="event.stopPropagation()">4</button>
                             <button type="button" class="diagram-pin absolute w-5 h-5 -ml-2.5 -mt-2.5 rounded-full bg-rose-500/90 border-2 border-slate-950 text-[9px] font-bold text-slate-950 flex items-center justify-center" style="top: 63%; left: 47%;" title="ZMP / Capture Point Marker" onclick="event.stopPropagation()">5</button>
-                            <button type="button" class="diagram-pin absolute w-5 h-5 -ml-2.5 -mt-2.5 rounded-full bg-teal-400/90 border-2 border-slate-950 text-[9px] font-bold text-slate-950 flex items-center justify-center" style="top: 62%; left: 64%;" title="Stability Support Boundary" onclick="event.stopPropagation()">6</button>
+                            <button type="button" class="diagram-pin absolute w-5 h-5 -ml-2.5 -mt-2.5 rounded-full bg-teal-400/90 border-2 border-slate-950 text-[9px] font-bold text-slate-950 flex items-center justify-center" style="top: 62%; left: 64%;" title="Terrain Origin Marker" onclick="event.stopPropagation()">6</button>
 
                             <div class="absolute bottom-3 right-3 text-[10px] font-mono text-slate-300 bg-black/50 backdrop-blur-sm px-2.5 py-1.5 rounded-lg border border-white/10 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                                 <span>⤢</span><span>Click to enlarge</span>
@@ -566,8 +625,8 @@
                             <div class="flex items-start gap-2.5">
                                 <span class="w-5 h-5 rounded-full bg-emerald-500/90 text-slate-950 text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">4</span>
                                 <div>
-                                    <div class="text-xs font-bold text-white">Ankle Torque Actuator</div>
-                                    <div class="text-[11px] text-slate-400 leading-relaxed">Where torque_compensation.ankle (&plusmn;150 Nm) is applied every frame.</div>
+                                    <div class="text-xs font-bold text-white">Ankle Torque Telemetry</div>
+                                    <div class="text-[11px] text-slate-400 leading-relaxed">The accepted response reports a bounded torque_compensation.ankle estimate (&plusmn;150 Nm) in the console telemetry.</div>
                                 </div>
                             </div>
                             <div class="flex items-start gap-2.5">
@@ -580,8 +639,8 @@
                             <div class="flex items-start gap-2.5">
                                 <span class="w-5 h-5 rounded-full bg-teal-400/90 text-slate-950 text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">6</span>
                                 <div>
-                                    <div class="text-xs font-bold text-white">Stability Support Boundary</div>
-                                    <div class="text-[11px] text-slate-400 leading-relaxed">The green ring &mdash; the capture radius the ZMP must stay inside to avoid a fall.</div>
+                                    <div class="text-xs font-bold text-white">Terrain Origin Marker</div>
+                                    <div class="text-[11px] text-slate-400 leading-relaxed">The fixed green ring marks the generated terrain origin. It is a navigation reference, not a live support boundary.</div>
                                 </div>
                             </div>
                         </div>
@@ -634,10 +693,10 @@
                     <h2 class="text-xs font-mono text-rose-400 uppercase tracking-widest">02 &mdash; Ground Stability</h2>
                     <p class="text-3xl font-bold text-white tracking-tight">Zero-Moment Point &amp; Capture Point</p>
                     <p class="text-sm text-slate-400 leading-relaxed">
-                        The Zero-Moment Point is the ground point where the net reaction force from the feet must act for the robot to stay upright without toppling. TerraWalk AI computes a target capture point every command &mdash; the red marker pulsing at the robot's feet in the simulator &mdash; and the green ring shows the live support boundary it needs to stay within.
+                        The Zero-Moment Point is the ground point where the net reaction force from the feet must act for the robot to stay upright without toppling. TerraWalk AI receives a bounded capture-point target with each accepted command and interpolates the pulsing red marker toward that location on the terrain. The fixed green ring marks the terrain origin.
                     </p>
                     <p class="text-sm text-slate-400 leading-relaxed">
-                        The forward/backward component projects further ahead as velocity increases, and the lateral component shifts hardest during a sidestep or on a strong cross-slope. Stability projection is the 0-100% live readout of how confidently the current pose sits inside that boundary.
+                        The forward/backward component can project further ahead as velocity increases, while the lateral component shifts for sidesteps. The current 0-100% HUD value is a client-side motion/stumble estimate; automatic falls remain governed by measured terrain tilt, unsupported drops, explicit fall commands, and map-boundary support loss.
                     </p>
                 </div>
                 <div class="reveal-on-scroll grid grid-cols-2 gap-3">
@@ -651,7 +710,7 @@
                         <div class="text-sm text-white font-bold">Red sphere</div>
                     </div>
                     <div class="glass-card p-4 rounded-xl border border-white/5">
-                        <div class="text-[10px] text-slate-500 uppercase font-mono tracking-wider">Boundary</div>
+                        <div class="text-[10px] text-slate-500 uppercase font-mono tracking-wider">Terrain origin</div>
                         <div class="text-sm text-white font-bold">Green ring</div>
                     </div>
                 </div>
@@ -695,26 +754,71 @@
         <!-- TORQUE & TERRAIN -->
         <section id="info-torque" class="scroll-mt-24 max-w-7xl mx-auto px-6 py-16 md:py-20 relative overflow-hidden">
             <div class="parallax-layer absolute top-0 right-1/4 w-96 h-96 rounded-full bg-amber-500/10 blur-3xl" data-parallax-speed="0.22"></div>
-            <div class="reveal-on-scroll text-center space-y-3 max-w-2xl mx-auto mb-12 relative z-10">
+            <div class="text-center space-y-3 max-w-3xl mx-auto mb-12 relative z-10">
                 <h2 class="text-xs font-mono text-amber-400 uppercase tracking-widest">04 &mdash; Actuation &amp; Terrain Response</h2>
-                <p class="text-3xl font-bold text-white tracking-tight">Torque Compensation &amp; Slope Recovery</p>
-                <p class="text-xs text-slate-400">Every command resolves to joint torques and a graduated terrain response, not just a pose.</p>
+                <div
+                    class="react-bits-root"
+                    data-react-bits="scroll-float"
+                    data-text="Torque Telemetry & Slope Recovery"
+                    data-container-class="scroll-float--systems"
+                    data-animation-duration="1"
+                    data-stagger="0.014"
+                >
+                    <h2 class="react-bits-fallback text-3xl font-bold text-white tracking-tight">Torque Telemetry &amp; Slope Recovery</h2>
+                </div>
+                <div
+                    class="react-bits-root"
+                    data-react-bits="scroll-reveal"
+                    data-text="Every command becomes a bounded actuation plan, every local grade becomes a measured response, and only supported authored descents convert a dangerous face into a controlled slide."
+                    data-container-class="scroll-reveal--compact"
+                    data-base-opacity="0.14"
+                    data-base-rotation="1.2"
+                    data-blur-strength="3.5"
+                >
+                    <p class="react-bits-fallback text-xs text-slate-400">Every command becomes a bounded actuation plan, every local grade becomes a measured response, and only supported authored descents convert a dangerous face into a controlled slide.</p>
+                </div>
             </div>
-            <div class="grid md:grid-cols-3 gap-8 relative z-10">
-                <div class="reveal-on-scroll glass-card p-6 rounded-2xl border border-white/5 space-y-3">
-                    <div class="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 font-mono text-sm">Nm</div>
-                    <h3 class="text-base font-bold text-white">Torque Compensation</h3>
-                    <p class="text-xs text-slate-400 leading-relaxed">Ankle, knee, and waist joint torque, each &minus;150 to 150 Nm, computed to counteract the requested balance adjustment.</p>
-                </div>
-                <div class="reveal-on-scroll glass-card p-6 rounded-2xl border border-white/5 space-y-3">
-                    <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-mono text-sm">10&deg;</div>
-                    <h3 class="text-base font-bold text-white">Comfortable Tilt</h3>
-                    <p class="text-xs text-slate-400 leading-relaxed">Below this measured local slope, the robot walks normally with no extra lean or speed penalty.</p>
-                </div>
-                <div class="reveal-on-scroll glass-card p-6 rounded-2xl border border-white/5 space-y-3">
-                    <div class="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 font-mono text-sm">32&deg;</div>
-                    <h3 class="text-base font-bold text-white">Max Recoverable Tilt</h3>
-                    <p class="text-xs text-slate-400 leading-relaxed">Between 10&deg; and this threshold, the robot progressively slows and leans into the grade. Beyond it, the controller climbs when a nearby ledge or boulder/debris grip is available; without a grip, a fall triggers and rests at an 84&deg; lie angle until rebooted.</p>
+            <div
+                class="experience-stack-root relative z-10"
+                data-react-bits="scroll-stack"
+                data-aria-label="Terrain response thresholds"
+                data-item-distance="88"
+                data-item-stack-distance="26"
+                data-base-scale="0.9"
+                data-blur-amount="0.4"
+                data-rotation-amount="0.2"
+            >
+                <div class="react-bits-fallback grid md:grid-cols-3 gap-8">
+                    <div
+                        data-scroll-stack-card
+                        data-card-key="systems-torque"
+                        data-item-class="stack-card--amber"
+                        class="reveal-on-scroll glass-card p-6 rounded-2xl border border-white/5 space-y-3"
+                    >
+                        <div class="stack-card-kicker text-amber-400">Actuation // &plusmn;150 Nm</div>
+                        <h3 class="stack-card-title">Bounded Torque Telemetry</h3>
+                        <p class="stack-card-copy">The validated response carries ankle, knee, and waist estimates within &plusmn;150 Nm. The console surfaces ankle/knee telemetry while browser-owned gait and terrain logic drive the visual pose.</p>
+                    </div>
+                    <div
+                        data-scroll-stack-card
+                        data-card-key="systems-comfort"
+                        data-item-class="stack-card--emerald"
+                        class="reveal-on-scroll glass-card p-6 rounded-2xl border border-white/5 space-y-3"
+                    >
+                        <div class="stack-card-kicker">Measured grade // &le;10&deg;</div>
+                        <h3 class="stack-card-title">Comfortable Tilt</h3>
+                        <p class="stack-card-copy">Below this local surface angle, the robot uses its normal gait while continuously blending a subtle slope-compensation lean.</p>
+                    </div>
+                    <div
+                        data-scroll-stack-card
+                        data-card-key="systems-limit"
+                        data-item-class="stack-card--rose"
+                        class="reveal-on-scroll glass-card p-6 rounded-2xl border border-white/5 space-y-3"
+                    >
+                        <div class="stack-card-kicker text-rose-400">Recovery boundary // 32&deg;</div>
+                        <h3 class="stack-card-title">Climb, Slide, or Fall</h3>
+                        <p class="stack-card-copy">A nearby grip starts a climb and a recognized mini-mountain descent starts a controlled slide. Any other unsupported extreme grade still triggers the existing 84&deg; fall and reboot sequence.</p>
+                    </div>
                 </div>
             </div>
         </section>
@@ -756,6 +860,299 @@
         <!-- Footer -->
         <footer class="border-t border-white/10 glass-panel py-8 px-6 text-center text-xs text-slate-500 font-mono">
             <p>TERRAWALK AI // ROBOT SYSTEMS REFERENCE</p>
+        </footer>
+    </div>
+
+    <!-- VIEW 4: PIPELINE (Browser / Backend / Kinematic Contract) -->
+    <div id="pipeline-view" class="pt-24 min-h-screen relative hidden">
+        <div class="absolute inset-0 radial-glow-top pointer-events-none"></div>
+        <div class="absolute inset-x-0 top-[36rem] h-[42rem] radial-glow-bottom pointer-events-none"></div>
+
+        <!-- In-page pipeline navigation -->
+        <nav class="relative z-10 border-b border-white/10 px-6">
+            <div class="info-subnav max-w-7xl mx-auto flex items-center gap-6 overflow-x-auto py-3 text-[10px] font-mono uppercase tracking-wider text-slate-400">
+                <a href="#pipeline-overview" class="hover:text-cyan-400 transition-colors whitespace-nowrap">Overview</a>
+                <a href="#pipeline-board" class="hover:text-cyan-400 transition-colors whitespace-nowrap">Circuit Board</a>
+                <a href="#pipeline-contract" class="hover:text-emerald-400 transition-colors whitespace-nowrap">JSON Contract</a>
+                <a href="#pipeline-versioning" class="hover:text-violet-400 transition-colors whitespace-nowrap">Schema Evolution</a>
+                <a href="#pipeline-connection" class="hover:text-amber-400 transition-colors whitespace-nowrap">Frontend / Backend</a>
+            </div>
+        </nav>
+
+        <!-- PIPELINE HERO -->
+        <section id="pipeline-overview" class="scroll-mt-24 max-w-7xl mx-auto px-6 py-16 md:py-24 relative overflow-hidden">
+            <div class="parallax-layer absolute -top-20 left-1/4 w-96 h-96 rounded-full bg-cyan-500/10 blur-3xl" data-parallax-speed="0.12"></div>
+            <div class="parallax-layer absolute top-24 right-0 w-80 h-80 rounded-full bg-violet-500/10 blur-3xl" data-parallax-speed="0.2"></div>
+
+            <div class="relative z-10 text-center max-w-4xl mx-auto space-y-7">
+                <div class="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/25 text-cyan-300 text-xs font-mono">
+                    <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+                    <span>Response Contract v3.2</span>
+                </div>
+                <h1 class="text-5xl md:text-7xl font-extrabold tracking-tight text-white leading-none">
+                    PIPELINE
+                </h1>
+                <div
+                    class="react-bits-root"
+                    data-react-bits="scroll-float"
+                    data-text="One command. One correlated contract."
+                    data-container-class="scroll-float--pipeline"
+                    data-animation-duration="1"
+                    data-stagger="0.016"
+                >
+                    <h2 class="react-bits-fallback text-3xl md:text-5xl font-bold tracking-tight text-cyan-200">One command. One correlated contract.</h2>
+                </div>
+                <div
+                    class="react-bits-root"
+                    data-react-bits="scroll-reveal"
+                    data-text="Follow a traversal instruction from the browser, through Flask validation and strict kinematic generation, into a sanitized versioned JSON response that the Three.js controller can safely apply."
+                    data-container-class="scroll-reveal--pipeline"
+                    data-base-opacity="0.1"
+                    data-base-rotation="2"
+                    data-blur-strength="6"
+                >
+                    <p class="react-bits-fallback text-sm md:text-base text-slate-400 leading-relaxed">Follow a traversal instruction from the browser, through Flask validation and strict kinematic generation, into a sanitized versioned JSON response that the Three.js controller can safely apply.</p>
+                </div>
+
+                <div class="flex flex-wrap justify-center gap-3 pt-2 text-[10px] font-mono uppercase tracking-wider">
+                    <span class="glass-card px-3 py-2 rounded-lg border border-cyan-500/20 text-cyan-300">Browser // AbortController</span>
+                    <span class="glass-card px-3 py-2 rounded-lg border border-emerald-500/20 text-emerald-300">Flask // Validation</span>
+                    <span class="glass-card px-3 py-2 rounded-lg border border-violet-500/20 text-violet-300">Groq // Strict Schema</span>
+                    <span class="glass-card px-3 py-2 rounded-lg border border-amber-500/20 text-amber-300">Fallback // Deterministic</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- COMPONENTRY CIRCUIT BOARD -->
+        <section id="pipeline-board" class="scroll-mt-24 max-w-7xl mx-auto px-6 py-12 md:py-20 relative z-10">
+            <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-5 mb-8">
+                <div class="space-y-3 max-w-2xl">
+                    <h2 class="text-xs font-mono text-cyan-400 uppercase tracking-widest">Architecture Map</h2>
+                    <p class="text-3xl font-bold text-white tracking-tight">The kinematic circuit board</p>
+                    <p class="text-sm text-slate-400 leading-relaxed">
+                        Traces show the primary controller path, its provider-safe fallback branch, and the validated response returning to the renderer. Motion is decorative when enabled; node positions describe data ownership, not live provider state or network latency.
+                    </p>
+                </div>
+                <div class="glass-card rounded-xl px-4 py-3 border border-white/10 text-[10px] font-mono text-slate-400">
+                    <div class="text-emerald-400 font-bold uppercase">Reliability invariant</div>
+                    <div class="mt-1">No raw model value reaches Three.js unsanitized.</div>
+                </div>
+            </div>
+
+            <div
+                id="pipeline-circuit-board-root"
+                data-componentry="circuit-board"
+                class="react-bits-root"
+            >
+                <div class="react-bits-fallback pipeline-board-frame p-6 md:p-10">
+                    <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs font-mono">
+                        <div class="glass-card rounded-xl p-4 border border-emerald-500/20 text-emerald-300">01 // Operator + terrain</div>
+                        <div class="glass-card rounded-xl p-4 border border-cyan-500/20 text-cyan-300">02 // Browser payload</div>
+                        <div class="glass-card rounded-xl p-4 border border-emerald-500/20 text-emerald-300">03 // Flask validation</div>
+                        <div class="glass-card rounded-xl p-4 border border-violet-500/20 text-violet-300">04 // Strict schema / fallback</div>
+                        <div class="glass-card rounded-xl p-4 border border-amber-500/20 text-amber-300">05 // Sanitize + override</div>
+                        <div class="glass-card rounded-xl p-4 border border-violet-500/20 text-violet-300">06 // JSON v3.2</div>
+                        <div class="glass-card rounded-xl p-4 border border-cyan-500/20 text-cyan-300">07 // Correlation check</div>
+                        <div class="glass-card rounded-xl p-4 border border-emerald-500/20 text-emerald-300">08 // Three.js state</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- REQUEST / RESPONSE CONTRACT -->
+        <section id="pipeline-contract" class="scroll-mt-24 max-w-7xl mx-auto px-6 py-16 md:py-20 relative z-10">
+            <div class="text-center max-w-3xl mx-auto space-y-3 mb-10">
+                <h2 class="text-xs font-mono text-emerald-400 uppercase tracking-widest">Wire Contract</h2>
+                <p class="text-3xl font-bold text-white tracking-tight">What crosses the frontend / backend boundary</p>
+                <p class="text-sm text-slate-400 leading-relaxed">
+                    The browser sends a current telemetry snapshot. Flask normalizes it, asks either controller for a complete kinematic matrix, and returns a correlated response with controller provenance.
+                </p>
+            </div>
+
+            <div class="pipeline-contract-grid">
+                <article class="pipeline-json-panel">
+                    <div class="flex items-center justify-between gap-3 mb-4">
+                        <div>
+                            <div class="text-[10px] font-mono text-cyan-400 uppercase tracking-widest">Browser &rarr; POST /api/traverse</div>
+                            <h3 class="text-base font-bold text-white mt-1">Request snapshot</h3>
+                        </div>
+                        <span class="px-2.5 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/25 text-[9px] font-mono text-cyan-300">application/json</span>
+                    </div>
+                    <pre><code>{
+  "request_id": "traverse-…",
+  "command": "climb the rubble",
+  "terrain": "rubble",
+  "friction": 0.50,
+  "angle": 0,
+  "obstacle": {
+    "type": "boulder",
+    "distance": 1.4
+  }
+}</code></pre>
+                </article>
+
+                <article class="pipeline-json-panel">
+                    <div class="flex items-center justify-between gap-3 mb-4">
+                        <div>
+                            <div class="text-[10px] font-mono text-violet-400 uppercase tracking-widest">Flask &rarr; Browser</div>
+                            <h3 class="text-base font-bold text-white mt-1">Validated matrix excerpt</h3>
+                        </div>
+                        <span class="px-2.5 py-1 rounded-full bg-violet-500/10 border border-violet-500/25 text-[9px] font-mono text-violet-300">schema 3.2</span>
+                    </div>
+                    <pre><code>{
+  "schema_version": "3.2",
+  "request_id": "traverse-…",
+  "controller_source": "groq",
+  "movement_state": "climb",
+  "velocity": 1.2,
+  "step_frequency": 2.0,
+  "obstacle_action": "climb",
+  "trigger_fall": false,
+  "target_pelvic_quaternion": {
+    "w": 0.996, "x": -0.090,
+    "y": 0.0, "z": 0.0
+  }
+}</code></pre>
+                </article>
+            </div>
+
+            <div class="grid md:grid-cols-3 gap-4 mt-5">
+                <div class="glass-card rounded-xl p-4 border border-white/5">
+                    <div class="text-[10px] font-mono text-emerald-400 uppercase tracking-wider">Normalize</div>
+                    <p class="text-xs text-slate-400 leading-relaxed mt-2">Invalid terrain becomes <span class="font-mono text-slate-200">flat</span>; friction, angle, obstacle distance, command length, and request ID are bounded before inference.</p>
+                </div>
+                <div class="glass-card rounded-xl p-4 border border-white/5">
+                    <div class="text-[10px] font-mono text-cyan-400 uppercase tracking-wider">Transform</div>
+                    <p class="text-xs text-slate-400 leading-relaxed mt-2">Frontend <span class="font-mono text-slate-200">angle</span> becomes <span class="font-mono text-slate-200">ground_angle_degrees</span>; <span class="font-mono text-slate-200">obstacle</span> becomes <span class="font-mono text-slate-200">active_hazard</span> for the model-facing prompt.</p>
+                </div>
+                <div class="glass-card rounded-xl p-4 border border-white/5">
+                    <div class="text-[10px] font-mono text-violet-400 uppercase tracking-wider">Correlate</div>
+                    <p class="text-xs text-slate-400 leading-relaxed mt-2">The browser rejects mismatched request IDs and ignores responses made stale by a reset, fall, regeneration, or automatic terrain maneuver.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- SCHEMA EVOLUTION STACK -->
+        <section id="pipeline-versioning" class="scroll-mt-24 max-w-6xl mx-auto px-6 py-16 md:py-20 relative z-10">
+            <div class="text-center max-w-3xl mx-auto space-y-3 mb-10">
+                <h2 class="text-xs font-mono text-violet-400 uppercase tracking-widest">Schema Evolution</h2>
+                <p class="text-3xl font-bold text-white tracking-tight">Changing JSON without disconnecting the robot</p>
+                <p class="text-sm text-slate-400 leading-relaxed">
+                    A format change is a coordinated contract change: schema, sanitizer, response version, and browser consumer move together.
+                </p>
+            </div>
+
+            <div
+                class="experience-stack-root"
+                data-react-bits="scroll-stack"
+                data-aria-label="Kinematic schema evolution"
+                data-item-distance="96"
+                data-item-stack-distance="28"
+                data-base-scale="0.88"
+                data-blur-amount="0.5"
+                data-rotation-amount="0.3"
+            >
+                <div class="react-bits-fallback grid md:grid-cols-3 gap-6">
+                    <article
+                        data-scroll-stack-card
+                        data-card-key="pipeline-contract-now"
+                        data-item-class="stack-card--cyan"
+                        class="glass-card rounded-2xl p-6 border border-cyan-500/15"
+                    >
+                        <div class="stack-card-kicker text-cyan-400">Current // v3.2</div>
+                        <h3 class="stack-card-title">Version and provenance</h3>
+                        <p class="stack-card-copy">Every successful browser-issued response identifies its schema, controlling source, and echoed request correlation. Provider warnings are additive metadata, so fallback operation remains transparent to the UI.</p>
+                        <div class="stack-card-code">
+                            <span>schema_version: "3.2"</span>
+                            <span>controller_source: "groq" | "deterministic_fallback"</span>
+                        </div>
+                    </article>
+
+                    <article
+                        data-scroll-stack-card
+                        data-card-key="pipeline-contract-additive"
+                        data-item-class="stack-card--emerald"
+                        class="glass-card rounded-2xl p-6 border border-emerald-500/15"
+                    >
+                        <div class="stack-card-kicker">Safe evolution // additive</div>
+                        <h3 class="stack-card-title">Add fields defensively</h3>
+                        <p class="stack-card-copy">Optional telemetry can be added without breaking older consumers when the browser supplies defaults and ignores fields it does not yet understand.</p>
+                        <div class="stack-card-code">
+                            <span>new_optional_metric?: number</span>
+                            <span>unknown keys &rarr; ignored by compatible clients</span>
+                        </div>
+                    </article>
+
+                    <article
+                        data-scroll-stack-card
+                        data-card-key="pipeline-contract-breaking"
+                        data-item-class="stack-card--violet"
+                        class="glass-card rounded-2xl p-6 border border-violet-500/15"
+                    >
+                        <div class="stack-card-kicker text-violet-400">Recommended migration // major</div>
+                        <h3 class="stack-card-title">Add a version gate before v4</h3>
+                        <p class="stack-card-copy">The current v3.2 browser correlates requests but does not yet reject schema majors. Before renaming or removing a required field, add a version-aware decoder or explicit guard, then advance the major version.</p>
+                        <div class="stack-card-code">
+                            <span>schema 4.x &rarr; version-aware decoder</span>
+                            <span>future guard: reject unsupported major before state mutation</span>
+                        </div>
+                    </article>
+                </div>
+            </div>
+        </section>
+
+        <!-- FRONTEND / BACKEND CONNECTION -->
+        <section id="pipeline-connection" class="scroll-mt-24 max-w-7xl mx-auto px-6 py-16 md:py-20 relative z-10">
+            <div class="grid lg:grid-cols-2 gap-10 items-start">
+                <div class="space-y-5">
+                    <div>
+                        <h2 class="text-xs font-mono text-amber-400 uppercase tracking-widest">Connection Lifecycle</h2>
+                        <p class="text-3xl font-bold text-white tracking-tight mt-3">How the browser stays synchronized</p>
+                    </div>
+                    <p class="text-sm text-slate-400 leading-relaxed">
+                        The frontend does not hold a persistent movement session on the server. Each command is a complete, stateless snapshot; continuity remains in the browser's simulation state and revision counters.
+                    </p>
+                    <ol class="pipeline-flow-list">
+                        <li><span class="text-slate-200 font-semibold">Capture.</span> The interface records command text plus terrain, friction, incline, and the currently blocking hazard.</li>
+                        <li><span class="text-slate-200 font-semibold">Bound the wait.</span> A 25-second AbortController timeout prevents a stalled provider call from freezing the controls.</li>
+                        <li><span class="text-slate-200 font-semibold">Validate twice.</span> Groq uses a strict JSON schema; the backend sanitizer then clips numbers, repairs enums, and canonicalizes the pelvic quaternion.</li>
+                        <li><span class="text-slate-200 font-semibold">Degrade safely.</span> Provider errors route through a deterministic traversal controller with the same response contract.</li>
+                        <li><span class="text-slate-200 font-semibold">Apply atomically.</span> Only a correlated, non-stale response mutates gait, heading, obstacle action, capture target, and fall state; torque estimates are displayed as bounded telemetry.</li>
+                    </ol>
+                </div>
+
+                <aside class="glass-panel rounded-3xl border border-white/10 p-6 md:p-8 space-y-6">
+                    <div>
+                        <div class="text-[10px] font-mono text-emerald-400 uppercase tracking-widest">Guardrails already active</div>
+                        <h3 class="text-xl font-bold text-white mt-2">A reliable handoff at every boundary</h3>
+                    </div>
+                    <div class="grid sm:grid-cols-2 gap-3">
+                        <div class="glass-card rounded-xl p-4 border border-white/5">
+                            <div class="text-sm font-bold text-white">No stale writes</div>
+                            <p class="text-xs text-slate-400 leading-relaxed mt-2">Simulation revisions invalidate responses after world-changing events.</p>
+                        </div>
+                        <div class="glass-card rounded-xl p-4 border border-white/5">
+                            <div class="text-sm font-bold text-white">No cached vectors</div>
+                            <p class="text-xs text-slate-400 leading-relaxed mt-2"><span class="font-mono">Cache-Control: no-store</span> keeps every command current.</p>
+                        </div>
+                        <div class="glass-card rounded-xl p-4 border border-white/5">
+                            <div class="text-sm font-bold text-white">Visible provenance</div>
+                            <p class="text-xs text-slate-400 leading-relaxed mt-2"><span class="font-mono">X-TerraWalk-Controller</span> identifies the response path.</p>
+                        </div>
+                        <div class="glass-card rounded-xl p-4 border border-white/5">
+                            <div class="text-sm font-bold text-white">Bounded physics</div>
+                            <p class="text-xs text-slate-400 leading-relaxed mt-2">LIP gait limits and slope checks remain browser-owned after JSON validation.</p>
+                        </div>
+                    </div>
+                    <button onclick="switchView('dashboard')" class="w-full py-3 bg-gradient-to-r from-cyan-400 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 text-slate-950 font-bold text-xs uppercase tracking-wider rounded-xl transition-all">
+                        Send a command through the pipeline
+                    </button>
+                </aside>
+            </div>
+        </section>
+
+        <footer class="border-t border-white/10 glass-panel py-8 px-6 text-center text-xs text-slate-500 font-mono">
+            <p>TERRAWALK AI // REQUEST-TO-KINEMATICS PIPELINE // SCHEMA v3.2</p>
         </footer>
     </div>
 
@@ -857,14 +1254,14 @@
             <button onclick="closeRobotLightbox()" class="absolute -top-11 right-0 text-slate-400 hover:text-white text-2xl font-mono leading-none">&times;</button>
             <div class="glass-panel rounded-2xl border border-white/10 p-3 relative">
                 <div class="relative rounded-xl overflow-hidden">
-                    <img id="robot-diagram-img-large" alt="Enlarged annotated humanoid robot diagram showing the sensor head, pelvic IMU, shoulder actuator, ankle actuator, ZMP capture-point marker, and stability support boundary" class="block w-full aspect-[756/678]">
+                    <img id="robot-diagram-img-large" alt="Enlarged annotated humanoid robot diagram showing the sensor head, pelvic IMU, shoulder actuator, ankle actuator, capture-point marker, and terrain origin marker" class="block w-full aspect-[756/678]">
 
                     <button type="button" class="diagram-pin absolute w-6 h-6 -ml-3 -mt-3 rounded-full bg-emerald-500/90 border-2 border-slate-950 text-[10px] font-bold text-slate-950 flex items-center justify-center" style="top: 23%; left: 46%;" title="Head / Sensor Array">1</button>
                     <button type="button" class="diagram-pin absolute w-6 h-6 -ml-3 -mt-3 rounded-full bg-emerald-500/90 border-2 border-slate-950 text-[10px] font-bold text-slate-950 flex items-center justify-center" style="top: 42%; left: 46%;" title="Pelvic IMU / SIP Origin">2</button>
                     <button type="button" class="diagram-pin absolute w-6 h-6 -ml-3 -mt-3 rounded-full bg-emerald-500/90 border-2 border-slate-950 text-[10px] font-bold text-slate-950 flex items-center justify-center" style="top: 29%; left: 39%;" title="Shoulder Actuator">3</button>
-                    <button type="button" class="diagram-pin absolute w-6 h-6 -ml-3 -mt-3 rounded-full bg-emerald-500/90 border-2 border-slate-950 text-[10px] font-bold text-slate-950 flex items-center justify-center" style="top: 56%; left: 42%;" title="Ankle Torque Actuator">4</button>
+                    <button type="button" class="diagram-pin absolute w-6 h-6 -ml-3 -mt-3 rounded-full bg-emerald-500/90 border-2 border-slate-950 text-[10px] font-bold text-slate-950 flex items-center justify-center" style="top: 56%; left: 42%;" title="Ankle Torque Telemetry">4</button>
                     <button type="button" class="diagram-pin absolute w-6 h-6 -ml-3 -mt-3 rounded-full bg-rose-500/90 border-2 border-slate-950 text-[10px] font-bold text-slate-950 flex items-center justify-center" style="top: 63%; left: 47%;" title="ZMP / Capture Point Marker">5</button>
-                    <button type="button" class="diagram-pin absolute w-6 h-6 -ml-3 -mt-3 rounded-full bg-teal-400/90 border-2 border-slate-950 text-[10px] font-bold text-slate-950 flex items-center justify-center" style="top: 62%; left: 64%;" title="Stability Support Boundary">6</button>
+                    <button type="button" class="diagram-pin absolute w-6 h-6 -ml-3 -mt-3 rounded-full bg-teal-400/90 border-2 border-slate-950 text-[10px] font-bold text-slate-950 flex items-center justify-center" style="top: 62%; left: 64%;" title="Terrain Origin Marker">6</button>
                 </div>
             </div>
         </div>
@@ -966,9 +1363,14 @@
             const landing = document.getElementById('landing-view');
             const dashboard = document.getElementById('dashboard-view');
             const info = document.getElementById('info-view');
+            const pipeline = document.getElementById('pipeline-view');
+
+            landing.classList.add('hidden');
+            dashboard.classList.add('hidden');
+            if (info) info.classList.add('hidden');
+            if (pipeline) pipeline.classList.add('hidden');
+
             if (viewName === 'dashboard') {
-                landing.classList.add('hidden');
-                if (info) info.classList.add('hidden');
                 dashboard.classList.remove('hidden');
                 setTimeout(() => {
                     if (renderer && camera) {
@@ -979,15 +1381,18 @@
                     }
                 }, 50);
             } else if (viewName === 'info') {
-                landing.classList.add('hidden');
-                dashboard.classList.add('hidden');
                 if (info) info.classList.remove('hidden');
                 window.scrollTo(0, 0);
                 requestAnimationFrame(applyInfoParallax);
+            } else if (viewName === 'pipeline') {
+                if (pipeline) pipeline.classList.remove('hidden');
+                window.scrollTo(0, 0);
             } else {
-                dashboard.classList.add('hidden');
-                if (info) info.classList.add('hidden');
                 landing.classList.remove('hidden');
+            }
+
+            if (typeof window.activateTerraWalkExperience === 'function') {
+                window.activateTerraWalkExperience(viewName);
             }
         }
 
@@ -1326,10 +1731,16 @@
         };
         const TERRAIN_UNSUPPORTED_DROPS = {
             rubble: [
-                { id: 'rubble-slip-face', x: 0, frontZ: -9.2, backZ: -11.5, halfWidth: 1.7, depth: 0.82, faceDepth: 0.42, rearDepth: 1.8 }
+                // Keep the extreme unsupported face as a genuine fall case, but place it
+                // off the default centerline. The old x=0 placement sat only ~1.8m after
+                // the authored shelf descent, so a successful climb + controlled slide
+                // was immediately followed by a visually indistinguishable guaranteed fall.
+                { id: 'rubble-slip-face', x: -5.3, frontZ: -9.2, backZ: -11.5, halfWidth: 1.7, depth: 0.82, faceDepth: 0.42, rearDepth: 1.8 }
             ],
             volcanic: [
-                { id: 'volcanic-fracture', x: 0, frontZ: -8.5, backZ: -10.9, halfWidth: 1.8, depth: 0.92, faceDepth: 0.42, rearDepth: 1.9 }
+                // Mirror this test face to the opposite flank so both biomes retain a
+                // reachable 32°+ fall case without ambushing the mini-mountain route.
+                { id: 'volcanic-fracture', x: 5.3, frontZ: -8.5, backZ: -10.9, halfWidth: 1.8, depth: 0.92, faceDepth: 0.42, rearDepth: 1.9 }
             ]
         };
         let terrainSlopeSeverity = 0; // 0 (comfortable) .. 1 (at the fall threshold); updated once per frame
@@ -1969,7 +2380,7 @@
                 const data = await response.json();
                 if (data.status === 'online') {
                     badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span><span>SYSTEM ACTIVE</span>`;
-                    badge.className = 'px-3 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-full text-[10px] font-mono tracking-wider flex items-center space-x-2';
+                    badge.className = 'hidden 2xl:flex px-3 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-full text-[10px] font-mono tracking-wider items-center space-x-2';
                     log.innerHTML += `<br>[OK]: Serverless API operational.`;
                     log.innerHTML += `<br>[AUTH]: Groq API status: ${data.groq_configured ? `CONFIGURED (${data.model || 'model unknown'})` : 'MISSING KEY'}`;
                     if (data.model_override_ignored) {
@@ -1980,7 +2391,7 @@
                 }
             } catch (error) {
                 badge.textContent = 'PIPELINE BREAK';
-                badge.className = 'px-3 py-1 bg-rose-500/20 text-rose-400 border border-rose-500/40 rounded-full text-[10px] font-mono tracking-wider';
+                badge.className = 'hidden 2xl:flex px-3 py-1 bg-rose-500/20 text-rose-400 border border-rose-500/40 rounded-full text-[10px] font-mono tracking-wider items-center';
                 log.innerHTML += `<br>[ERR]: Backend connection failed.`;
             }
         }
@@ -2594,12 +3005,11 @@
                 ])
             );
             const previousFeatureHeights = new Map(originFeatureHeights);
-            const immediatePoint = samplePoint(0.3);
-            const immediateGround = calculateGroundMathHeight(
-                immediatePoint.x,
-                immediatePoint.z,
-                type
-            );
+            // Look 0.7 m ahead so the controlled slide is armed just before the rear
+            // face reaches the robot's footprint. Shorter probes left a narrow
+            // volcanic gap where procedural texture could exceed the fall threshold
+            // before the authored descent became visible to this classifier.
+            const immediatePoint = samplePoint(0.7);
             let previousDistance = 0;
             let previousGround = originGround;
 
@@ -2621,18 +3031,24 @@
                         feature
                     );
                     const immediateFeatureDrop = originFeatureHeight - immediateFeatureHeight;
-                    const immediateGroundDrop = originGround - immediateGround;
                     const faceAngle = Math.atan2(
                         Math.max(featureSegmentDrop, groundDrop),
                         Math.max(segmentRun, 0.001)
                     );
 
+                    // Authored ledge contribution is the source of truth for these
+                    // whitelisted mini-mountain exits. Procedural noise is layered on
+                    // top of the same surface and can momentarily cancel the net
+                    // forward ground drop at one probe, even though the robot is
+                    // visibly leaving the authored steep face. Requiring both drops
+                    // made a small set of volcanic/rubble descents miss this classifier
+                    // and fall through to triggerFall(). Unsupported and procedural
+                    // terrain never enter this feature-only branch, so their fall
+                    // behavior remains unchanged.
                     if (
                         featureSegmentDrop >= 0.035 &&
-                        groundDrop >= 0.02 &&
                         featureTotalDrop >= 0.08 &&
                         immediateFeatureDrop >= 0.02 &&
-                        immediateGroundDrop >= 0.015 &&
                         faceAngle >= THREE.MathUtils.degToRad(16)
                     ) {
                         let landingDistance = distance;
@@ -4037,6 +4453,13 @@
                 terrainSlopeSeverity = THREE.MathUtils.clamp(
                     (steepestTilt - COMFORTABLE_TILT) / (MAX_RECOVERABLE_TILT - COMFORTABLE_TILT), 0, 1
                 );
+                // Hazard braking can briefly reduce effective speed to zero while the
+                // robot is still in an active traversal state on a recognized authored
+                // descent. Use state intent for that narrowly scoped classifier so the
+                // mountain slide cannot fall through to the overload branch. Explicit
+                // idle/brace commands stay stationary and retain normal fall behavior.
+                const terrainDescentTraversalActive =
+                    movementState !== 'idle' && movementState !== 'brace';
                 if (
                     !isRobotIncapacitated() &&
                     !isClimbing &&
@@ -4044,7 +4467,7 @@
                     !isJumping &&
                     sidestepTimer <= 0 &&
                     !obstacleDetour &&
-                    effectiveSpeed > 0.1 &&
+                    terrainDescentTraversalActive &&
                     elapsedTime >= terrainSlideCooldownUntil
                 ) {
                     beginTerrainAssistedSlide(findNearbySlidableDescent(activeTerrainProfile));

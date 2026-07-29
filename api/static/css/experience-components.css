@@ -1,0 +1,573 @@
+/*
+ * TerraWalk non-simulation experience components.
+ *
+ * ScrollStack, ScrollFloat, and ScrollReveal are React adaptations of the
+ * React Bits component sources supplied for this project. The circuit-board
+ * visual follows Componentry's documented MIT-licensed component API and
+ * interaction model, adapted to TerraWalk's small browser-side React islands.
+ */
+
+.react-bits-root {
+    width: 100%;
+}
+
+.react-bits-fallback {
+    width: 100%;
+}
+
+.experience-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.react-bits-enhanced > .react-bits-fallback {
+    display: none;
+}
+
+/* -------------------------------------------------------------------------- */
+/* ScrollFloat                                                                 */
+/* -------------------------------------------------------------------------- */
+
+.scroll-float {
+    margin: 0;
+    overflow: hidden;
+}
+
+.scroll-float-text {
+    display: inline-block;
+    font-size: clamp(1.9rem, 4.8vw, 3.75rem);
+    font-weight: 800;
+    line-height: 1.12;
+    letter-spacing: -0.035em;
+    text-align: center;
+}
+
+.scroll-float .char {
+    display: inline-block;
+}
+
+.scroll-float--landing,
+.scroll-float--systems,
+.scroll-float--pipeline {
+    width: 100%;
+    text-align: center;
+}
+
+.scroll-float--landing .scroll-float-text {
+    background: linear-gradient(90deg, #f8fafc 0%, #a7f3d0 48%, #67e8f9 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+.scroll-float--systems .scroll-float-text {
+    background: linear-gradient(90deg, #fde68a 0%, #f8fafc 44%, #a7f3d0 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+.scroll-float--pipeline .scroll-float-text {
+    background: linear-gradient(90deg, #67e8f9 0%, #a7f3d0 52%, #c4b5fd 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+/* -------------------------------------------------------------------------- */
+/* ScrollReveal                                                                */
+/* -------------------------------------------------------------------------- */
+
+.scroll-reveal {
+    margin: 20px auto;
+}
+
+.scroll-reveal-text {
+    margin: 0;
+    font-size: clamp(1.2rem, 2.4vw, 2rem);
+    font-weight: 600;
+    line-height: 1.55;
+}
+
+.scroll-reveal .word {
+    display: inline-block;
+}
+
+.scroll-reveal--compact {
+    max-width: 54rem;
+    text-align: center;
+}
+
+.scroll-reveal--compact .scroll-reveal-text {
+    color: #94a3b8;
+    font-size: clamp(1rem, 1.8vw, 1.35rem);
+    font-weight: 500;
+}
+
+.scroll-reveal--pipeline {
+    max-width: 62rem;
+    text-align: center;
+}
+
+.scroll-reveal--pipeline .scroll-reveal-text {
+    color: #cbd5e1;
+    font-size: clamp(1.05rem, 2vw, 1.55rem);
+}
+
+/* -------------------------------------------------------------------------- */
+/* ScrollStack                                                                 */
+/* -------------------------------------------------------------------------- */
+
+.experience-stack-root {
+    width: 100%;
+}
+
+.experience-stack-root.react-bits-enhanced {
+    height: clamp(31rem, 70vh, 42rem);
+    min-height: 31rem;
+}
+
+.scroll-stack-scroller {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scroll-behavior: smooth;
+    scrollbar-gutter: stable;
+    -webkit-overflow-scrolling: touch;
+    -webkit-transform: translateZ(0);
+    transform: translateZ(0);
+    will-change: scroll-position;
+}
+
+.scroll-stack-scroller:focus-visible {
+    outline: 2px solid rgba(52, 211, 153, 0.8);
+    outline-offset: 6px;
+    border-radius: 1.5rem;
+}
+
+.scroll-stack-inner {
+    min-height: 100%;
+    padding: 11vh clamp(0.35rem, 3vw, 3rem) 28rem;
+}
+
+.scroll-stack-card {
+    position: relative;
+    width: 100%;
+    min-height: 15.5rem;
+    margin: 30px 0;
+    padding: clamp(1.5rem, 4vw, 3rem);
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: clamp(1.5rem, 4vw, 2.5rem);
+    box-sizing: border-box;
+    background:
+        linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(8, 10, 17, 0.96)),
+        rgba(12, 13, 20, 0.95);
+    box-shadow:
+        0 24px 70px rgba(0, 0, 0, 0.32),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    backface-visibility: hidden;
+    transform-style: preserve-3d;
+    transform-origin: top center;
+    -webkit-transform: translateZ(0);
+    transform: translateZ(0);
+    will-change: transform, filter;
+}
+
+.scroll-stack-card::before {
+    position: absolute;
+    inset: 0;
+    content: "";
+    pointer-events: none;
+    background:
+        radial-gradient(circle at 12% 10%, rgba(52, 211, 153, 0.12), transparent 34%),
+        linear-gradient(115deg, transparent 65%, rgba(34, 211, 238, 0.06));
+}
+
+.scroll-stack-card > * {
+    position: relative;
+    z-index: 1;
+}
+
+.scroll-stack-card.stack-card--cyan::before {
+    background:
+        radial-gradient(circle at 12% 10%, rgba(34, 211, 238, 0.14), transparent 34%),
+        linear-gradient(115deg, transparent 65%, rgba(59, 130, 246, 0.07));
+}
+
+.scroll-stack-card.stack-card--rose::before {
+    background:
+        radial-gradient(circle at 12% 10%, rgba(251, 113, 133, 0.13), transparent 34%),
+        linear-gradient(115deg, transparent 65%, rgba(244, 63, 94, 0.06));
+}
+
+.scroll-stack-card.stack-card--violet::before {
+    background:
+        radial-gradient(circle at 12% 10%, rgba(167, 139, 250, 0.14), transparent 34%),
+        linear-gradient(115deg, transparent 65%, rgba(99, 102, 241, 0.07));
+}
+
+.scroll-stack-card.stack-card--amber::before {
+    background:
+        radial-gradient(circle at 12% 10%, rgba(251, 191, 36, 0.13), transparent 34%),
+        linear-gradient(115deg, transparent 65%, rgba(245, 158, 11, 0.06));
+}
+
+.scroll-stack-end {
+    width: 100%;
+    height: 1px;
+}
+
+.stack-card-content {
+    display: flex;
+    min-height: 9rem;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.8rem;
+}
+
+.stack-card-kicker {
+    color: #34d399;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+}
+
+.stack-card-title {
+    color: #f8fafc;
+    font-size: clamp(1.35rem, 3vw, 2.15rem);
+    font-weight: 750;
+    letter-spacing: -0.025em;
+    line-height: 1.15;
+}
+
+.stack-card-copy {
+    max-width: 56rem;
+    color: #94a3b8;
+    font-size: clamp(0.82rem, 1.6vw, 1rem);
+    line-height: 1.75;
+}
+
+.stack-card-code {
+    display: grid;
+    margin-top: 0.45rem;
+    gap: 0.35rem;
+    color: #a7f3d0;
+    font-family: "JetBrains Mono", monospace;
+    font-size: clamp(0.68rem, 1.25vw, 0.8rem);
+}
+
+.stack-card-code span {
+    display: block;
+    padding: 0.42rem 0.65rem;
+    border: 1px solid rgba(52, 211, 153, 0.13);
+    border-radius: 0.65rem;
+    background: rgba(2, 6, 23, 0.55);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Componentry-inspired Circuit Board                                          */
+/* -------------------------------------------------------------------------- */
+
+.pipeline-board-frame {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid rgba(34, 211, 238, 0.2);
+    border-radius: 2rem;
+    background:
+        radial-gradient(circle at 50% 0%, rgba(34, 211, 238, 0.09), transparent 42%),
+        linear-gradient(145deg, rgba(9, 12, 22, 0.98), rgba(3, 5, 11, 0.98));
+    box-shadow:
+        0 34px 90px rgba(0, 0, 0, 0.42),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.pipeline-board-frame::after {
+    position: absolute;
+    inset: 0;
+    content: "";
+    pointer-events: none;
+    background: linear-gradient(110deg, transparent 38%, rgba(255, 255, 255, 0.035) 50%, transparent 62%);
+    transform: translateX(-120%);
+    animation: circuit-board-sheen 7s ease-in-out infinite;
+}
+
+@keyframes circuit-board-sheen {
+    0%,
+    62% {
+        transform: translateX(-120%);
+    }
+    86%,
+    100% {
+        transform: translateX(120%);
+    }
+}
+
+.circuit-board {
+    display: block;
+    width: 100%;
+    height: auto;
+    min-height: 23rem;
+}
+
+.circuit-board-grid-dot {
+    fill: rgba(100, 116, 139, 0.34);
+}
+
+.circuit-board-trace-shadow {
+    fill: none;
+    stroke: rgba(15, 23, 42, 0.95);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.circuit-board-trace {
+    fill: none;
+    stroke: rgba(45, 212, 191, 0.36);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.circuit-board-trace--fallback {
+    stroke: rgba(251, 191, 36, 0.36);
+    stroke-dasharray: 7 7;
+}
+
+.circuit-board-trace--response {
+    stroke: rgba(167, 139, 250, 0.42);
+}
+
+.circuit-board-pulse {
+    fill: #5eead4;
+    filter: drop-shadow(0 0 6px rgba(45, 212, 191, 0.95));
+}
+
+.circuit-board-pulse--fallback {
+    fill: #fbbf24;
+    filter: drop-shadow(0 0 6px rgba(251, 191, 36, 0.95));
+}
+
+.circuit-board-pulse--response {
+    fill: #c4b5fd;
+    filter: drop-shadow(0 0 6px rgba(167, 139, 250, 0.95));
+}
+
+.circuit-node-halo {
+    fill: rgba(16, 185, 129, 0.08);
+    stroke: rgba(52, 211, 153, 0.16);
+}
+
+.circuit-node-body {
+    fill: rgba(10, 15, 25, 0.96);
+    stroke: rgba(100, 116, 139, 0.72);
+    stroke-width: 1.25;
+}
+
+.circuit-node--active .circuit-node-body {
+    stroke: rgba(52, 211, 153, 0.92);
+    filter: drop-shadow(0 0 9px rgba(16, 185, 129, 0.28));
+}
+
+.circuit-node--processing .circuit-node-body {
+    stroke: rgba(34, 211, 238, 0.92);
+    filter: drop-shadow(0 0 9px rgba(34, 211, 238, 0.28));
+}
+
+.circuit-node--standby .circuit-node-body {
+    stroke: rgba(251, 191, 36, 0.75);
+}
+
+.circuit-node-icon {
+    fill: #e2e8f0;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    font-weight: 700;
+    text-anchor: middle;
+}
+
+.circuit-node-label {
+    fill: #cbd5e1;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-anchor: middle;
+}
+
+.circuit-node-status {
+    fill: #34d399;
+    filter: drop-shadow(0 0 5px rgba(52, 211, 153, 0.8));
+}
+
+.circuit-node--processing .circuit-node-status {
+    fill: #22d3ee;
+}
+
+.circuit-node--standby .circuit-node-status {
+    fill: #fbbf24;
+}
+
+.circuit-node--inactive .circuit-node-status {
+    fill: #64748b;
+    filter: none;
+}
+
+.circuit-board-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem 1.15rem;
+    padding: 1rem 1.25rem 1.2rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+    color: #94a3b8;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+}
+
+.circuit-board-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.circuit-board-legend i {
+    display: inline-block;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 999px;
+    background: #34d399;
+    box-shadow: 0 0 8px rgba(52, 211, 153, 0.65);
+}
+
+.circuit-board-legend .legend-fallback {
+    background: #fbbf24;
+    box-shadow: 0 0 8px rgba(251, 191, 36, 0.6);
+}
+
+.circuit-board-legend .legend-response {
+    background: #a78bfa;
+    box-shadow: 0 0 8px rgba(167, 139, 250, 0.6);
+}
+
+.pipeline-contract-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.pipeline-json-panel {
+    min-width: 0;
+    padding: clamp(1.1rem, 3vw, 1.7rem);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 1.35rem;
+    background: rgba(8, 10, 17, 0.82);
+}
+
+.pipeline-json-panel pre {
+    margin: 0;
+    overflow-x: auto;
+    color: #a7f3d0;
+    font-family: "JetBrains Mono", monospace;
+    font-size: clamp(0.67rem, 1.2vw, 0.78rem);
+    line-height: 1.75;
+    white-space: pre;
+}
+
+.pipeline-flow-list {
+    display: grid;
+    gap: 0.85rem;
+    counter-reset: pipeline-stage;
+}
+
+.pipeline-flow-list li {
+    position: relative;
+    min-height: 3.4rem;
+    padding: 0.85rem 1rem 0.85rem 3.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 1rem;
+    background: rgba(15, 23, 42, 0.38);
+    color: #94a3b8;
+    font-size: 0.82rem;
+    line-height: 1.55;
+    list-style: none;
+    counter-increment: pipeline-stage;
+}
+
+.pipeline-flow-list li::before {
+    position: absolute;
+    top: 0.78rem;
+    left: 0.9rem;
+    display: grid;
+    width: 2rem;
+    height: 2rem;
+    place-items: center;
+    border: 1px solid rgba(52, 211, 153, 0.38);
+    border-radius: 0.65rem;
+    background: rgba(16, 185, 129, 0.08);
+    color: #34d399;
+    content: counter(pipeline-stage, decimal-leading-zero);
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.65rem;
+    font-weight: 700;
+}
+
+@media (max-width: 767px) {
+    .experience-stack-root.react-bits-enhanced {
+        height: 34rem;
+    }
+
+    .scroll-stack-inner {
+        padding-top: 7vh;
+        padding-right: 0.25rem;
+        padding-left: 0.25rem;
+    }
+
+    .scroll-stack-card {
+        min-height: 17rem;
+        padding: 1.35rem;
+        border-radius: 1.5rem;
+    }
+
+    .pipeline-contract-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .circuit-board {
+        min-width: 640px;
+    }
+
+    .pipeline-board-scroll {
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pipeline-board-frame::after {
+        animation: none;
+    }
+
+    .circuit-board-pulse {
+        visibility: hidden;
+    }
+
+    .scroll-stack-scroller {
+        scroll-behavior: auto;
+    }
+
+    .scroll-stack-card {
+        filter: none !important;
+        transform: none !important;
+    }
+}
