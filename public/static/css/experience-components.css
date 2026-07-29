@@ -128,9 +128,36 @@
     width: 100%;
 }
 
-.experience-stack-root.react-bits-enhanced {
+.experience-stack-root.react-bits-enhanced:not(.experience-stack-root--window) {
     height: clamp(31rem, 70vh, 42rem);
     min-height: 31rem;
+}
+
+.experience-stack-root--window {
+    position: relative;
+    isolation: isolate;
+    overflow: visible;
+}
+
+.experience-stack-root--window::before {
+    position: absolute;
+    z-index: -1;
+    top: 6vh;
+    right: 4%;
+    bottom: 22vh;
+    left: 4%;
+    border: 1px solid rgba(148, 163, 184, 0.06);
+    border-radius: clamp(2rem, 6vw, 5rem);
+    content: "";
+    pointer-events: none;
+    background:
+        radial-gradient(circle at 50% 0%, rgba(34, 211, 238, 0.075), transparent 34%),
+        linear-gradient(180deg, rgba(15, 23, 42, 0.08), transparent 45%);
+}
+
+.experience-stack-root.react-bits-enhanced.experience-stack-root--window {
+    height: auto;
+    min-height: 0;
 }
 
 .scroll-stack-scroller {
@@ -148,6 +175,18 @@
     will-change: scroll-position;
 }
 
+.scroll-stack-scroller--window {
+    height: auto;
+    overflow: visible;
+    overscroll-behavior: auto;
+    scroll-behavior: auto;
+    scrollbar-gutter: auto;
+    -webkit-overflow-scrolling: auto;
+    -webkit-transform: none;
+    transform: none;
+    will-change: auto;
+}
+
 .scroll-stack-scroller:focus-visible {
     outline: 2px solid rgba(52, 211, 153, 0.8);
     outline-offset: 6px;
@@ -157,6 +196,14 @@
 .scroll-stack-inner {
     min-height: 100%;
     padding: 11vh clamp(0.35rem, 3vw, 3rem) 28rem;
+}
+
+.scroll-stack-scroller--window .scroll-stack-inner {
+    min-height: 0;
+    padding:
+        clamp(4rem, 12vh, 8rem)
+        clamp(0.25rem, 3vw, 3rem)
+        clamp(18rem, 42vh, 30rem);
 }
 
 .scroll-stack-card {
@@ -181,6 +228,29 @@
     -webkit-transform: translateZ(0);
     transform: translateZ(0);
     will-change: transform, filter;
+}
+
+.scroll-stack-scroller--window .scroll-stack-card {
+    min-height: clamp(18rem, 42vh, 26rem);
+    border-color: rgba(148, 163, 184, 0.14);
+    background:
+        linear-gradient(145deg, rgba(15, 23, 42, 0.985), rgba(5, 8, 15, 0.975)),
+        rgba(8, 10, 17, 0.98);
+    box-shadow:
+        0 34px 100px rgba(0, 0, 0, 0.46),
+        0 1px 0 rgba(255, 255, 255, 0.045) inset,
+        0 -1px 0 rgba(15, 23, 42, 0.8) inset;
+}
+
+.scroll-stack-scroller--window .scroll-stack-card::after {
+    position: absolute;
+    top: 1.5rem;
+    right: 1.75rem;
+    width: 2.5rem;
+    height: 1px;
+    content: "";
+    pointer-events: none;
+    background: linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.45));
 }
 
 .scroll-stack-card::before {
@@ -523,7 +593,7 @@
 }
 
 @media (max-width: 767px) {
-    .experience-stack-root.react-bits-enhanced {
+    .experience-stack-root.react-bits-enhanced:not(.experience-stack-root--window) {
         height: 34rem;
     }
 
@@ -533,10 +603,21 @@
         padding-left: 0.25rem;
     }
 
+    .scroll-stack-scroller--window .scroll-stack-inner {
+        padding-top: 3.5rem;
+        padding-right: 0;
+        padding-bottom: 18rem;
+        padding-left: 0;
+    }
+
     .scroll-stack-card {
         min-height: 17rem;
         padding: 1.35rem;
         border-radius: 1.5rem;
+    }
+
+    .scroll-stack-scroller--window .scroll-stack-card {
+        min-height: clamp(18rem, 58vh, 24rem);
     }
 
     .pipeline-contract-grid {

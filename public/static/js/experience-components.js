@@ -475,8 +475,13 @@
 
             const getElementOffset = useCallback((element) => {
                 if (useWindowScroll) {
-                    const rect = element.getBoundingClientRect();
-                    return rect.top + global.scrollY;
+                    let offsetTop = 0;
+                    let currentElement = element;
+                    while (currentElement) {
+                        offsetTop += currentElement.offsetTop || 0;
+                        currentElement = currentElement.offsetParent;
+                    }
+                    return offsetTop;
                 }
                 return element.offsetTop;
             }, [useWindowScroll]);
@@ -799,10 +804,14 @@
                 'div',
                 {
                     'aria-label': ariaLabel,
-                    className: `scroll-stack-scroller ${className}`.trim(),
+                    className: [
+                        'scroll-stack-scroller',
+                        useWindowScroll ? 'scroll-stack-scroller--window' : '',
+                        className
+                    ].filter(Boolean).join(' '),
                     ref: scrollerRef,
                     role: 'region',
-                    tabIndex: 0
+                    tabIndex: useWindowScroll ? undefined : 0
                 },
                 h(
                     'div',
@@ -1138,6 +1147,10 @@
             ScrollStackItem,
             h
         } = components;
+        const useWindowScroll = boolFromDataset(
+            rootElement.dataset.useWindowScroll,
+            true
+        );
         const cardMarkup = Array.from(
             rootElement.querySelectorAll('[data-scroll-stack-card]')
         ).map((card, index) => ({
@@ -1147,6 +1160,11 @@
         }));
 
         if (!cardMarkup.length) return;
+
+        rootElement.classList.toggle(
+            'experience-stack-root--window',
+            useWindowScroll
+        );
 
         const items = cardMarkup.map((card) => h(
             ScrollStackItem,
@@ -1183,7 +1201,7 @@
                 ),
                 scaleEndPosition: rootElement.dataset.scaleEndPosition || '12%',
                 stackPosition: rootElement.dataset.stackPosition || '14%',
-                useWindowScroll: false
+                useWindowScroll
             },
             items
         ));
