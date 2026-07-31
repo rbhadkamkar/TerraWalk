@@ -188,8 +188,8 @@
 
         <!-- Navigation items -->
         <nav class="hidden xl:flex items-center space-x-8 text-xs font-semibold tracking-wider text-slate-400 uppercase" aria-label="Primary navigation">
-            <a href="#showcase" class="hover:text-emerald-400 transition-colors" onclick="switchView('landing')">Product</a>
-            <a href="#kinematics" class="hover:text-emerald-400 transition-colors" onclick="switchView('landing')">Architecture</a>
+            <a href="#showcase" class="hover:text-emerald-400 transition-colors" onclick="switchView('landing', { preserveSectionTarget: true })">Product</a>
+            <a href="#kinematics" class="hover:text-emerald-400 transition-colors" onclick="switchView('landing', { preserveSectionTarget: true })">Architecture</a>
             <button type="button" class="hover:text-cyan-400 transition-colors uppercase" onclick="switchView('pipeline')">Pipeline</button>
             <button type="button" class="hover:text-emerald-400 transition-colors uppercase" onclick="switchView('info')">Robot Systems</button>
         </nav>
@@ -900,6 +900,8 @@
                     data-text="One command. One correlated contract."
                     data-container-class="scroll-float--pipeline"
                     data-animation-duration="1"
+                    data-scroll-start="clamp(top center)"
+                    data-scroll-end="+=220"
                     data-stagger="0.016"
                 >
                     <h2 class="react-bits-fallback text-3xl md:text-5xl font-bold tracking-tight text-cyan-200">One command. One correlated contract.</h2>
@@ -912,6 +914,10 @@
                     data-base-opacity="0.1"
                     data-base-rotation="2"
                     data-blur-strength="6"
+                    data-rotation-start="clamp(top center)"
+                    data-rotation-end="+=220"
+                    data-word-animation-start="clamp(top center)"
+                    data-word-animation-end="+=280"
                 >
                     <p class="react-bits-fallback text-sm md:text-base text-slate-400 leading-relaxed">Follow a traversal instruction from the browser, through Flask validation and strict kinematic generation, into a sanitized versioned JSON response that the Three.js controller can safely apply.</p>
                 </div>
@@ -1362,6 +1368,21 @@
             }
         }
 
+        function forceTerraWalkWindowToTop() {
+            const root = document.documentElement;
+            const previousScrollBehavior = root.style.scrollBehavior;
+            root.style.scrollBehavior = 'auto';
+
+            try {
+                window.scrollTo({ behavior: 'auto', left: 0, top: 0 });
+                root.scrollTop = 0;
+                document.body.scrollTop = 0;
+            } finally {
+                root.style.scrollBehavior = previousScrollBehavior;
+            }
+        }
+        window.forceTerraWalkWindowToTop = forceTerraWalkWindowToTop;
+
         function resetViewScrollPosition(viewElement) {
             if (window.location.hash && window.history?.replaceState) {
                 window.history.replaceState(
@@ -1371,9 +1392,7 @@
                 );
             }
 
-            window.scrollTo(0, 0);
-            document.documentElement.scrollTop = 0;
-            document.body.scrollTop = 0;
+            forceTerraWalkWindowToTop();
 
             if (!viewElement) return;
             viewElement.querySelectorAll('[data-view-scroll-container]').forEach((container) => {
@@ -1383,11 +1402,12 @@
         }
 
         // View switching logic
-        function switchView(viewName) {
+        function switchView(viewName, options = {}) {
             const landing = document.getElementById('landing-view');
             const dashboard = document.getElementById('dashboard-view');
             const info = document.getElementById('info-view');
             const pipeline = document.getElementById('pipeline-view');
+            const preserveSectionTarget = Boolean(options.preserveSectionTarget);
             let activeView = landing;
 
             landing.classList.add('hidden');
@@ -1416,7 +1436,9 @@
                 landing.classList.remove('hidden');
             }
 
-            resetViewScrollPosition(activeView);
+            if (!preserveSectionTarget) {
+                resetViewScrollPosition(activeView);
+            }
             if (viewName === 'info') {
                 replayInfoPageReveals();
                 requestAnimationFrame(applyInfoParallax);
@@ -1425,9 +1447,10 @@
             if (typeof window.activateTerraWalkExperience === 'function') {
                 window.activateTerraWalkExperience(viewName, {
                     resetAnimations: true,
-                    resetScroll: true
+                    resetScroll: !preserveSectionTarget,
+                    safeRefresh: preserveSectionTarget
                 });
-            } else {
+            } else if (!preserveSectionTarget) {
                 requestAnimationFrame(() => {
                     resetViewScrollPosition(activeView);
                 });
@@ -2447,7 +2470,7 @@
 
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(container.clientWidth, container.clientHeight);
-            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
             container.appendChild(renderer.domElement);
 
             const ambientLight = new THREE.AmbientLight(0x30313f, 0.9);
@@ -4664,7 +4687,10 @@
                 camera.lookAt(humanoidGroup.position.x, humanoidGroup.position.y + 0.8, humanoidGroup.position.z);
             }
 
-            renderer.render(scene, camera);
+            const dashboardView = document.getElementById('dashboard-view');
+            if (dashboardView && !dashboardView.classList.contains('hidden')) {
+                renderer.render(scene, camera);
+            }
         }
 
         // ============================================================================

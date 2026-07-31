@@ -24,6 +24,9 @@
     const mountedRoots = new WeakMap();
     let components = null;
     let activeViewName = 'landing';
+    let pendingActivationFrame = null;
+    let pendingRefreshFrame = null;
+    let activationSequence = 0;
 
     function dependencySetIsReady() {
         return Boolean(
@@ -57,7 +60,6 @@
         const {
             createElement: h,
             useCallback,
-            useEffect,
             useId,
             useLayoutEffect,
             useMemo,
@@ -101,7 +103,7 @@
                 [text]
             );
 
-            useEffect(() => {
+            useLayoutEffect(() => {
                 const element = containerRef.current;
                 if (!element) return undefined;
 
@@ -157,9 +159,7 @@
                     } else if (ownerIsActive) {
                         if (resetAnimation) animation.progress(0);
                         if (trigger) {
-                            trigger.enable(false);
-                            trigger.refresh();
-                            trigger.update();
+                            trigger.enable(false, false);
                         }
                     } else if (trigger) {
                         trigger.disable(false);
@@ -236,7 +236,9 @@
             blurStrength = 4,
             containerClassName = '',
             textClassName = '',
+            rotationStart = 'top bottom',
             rotationEnd = 'bottom bottom',
+            wordAnimationStart = 'top bottom-=20%',
             wordAnimationEnd = 'bottom bottom',
             ownerView = 'landing'
         }) {
@@ -257,7 +259,7 @@
                 [text]
             );
 
-            useEffect(() => {
+            useLayoutEffect(() => {
                 const element = containerRef.current;
                 if (!element) return undefined;
 
@@ -280,7 +282,7 @@
                             end: rotationEnd,
                             scroller,
                             scrub: true,
-                            start: 'top bottom',
+                            start: rotationStart,
                             trigger: element
                         }
                     }
@@ -302,7 +304,7 @@
                             end: wordAnimationEnd,
                             scroller,
                             scrub: true,
-                            start: 'top bottom-=20%',
+                            start: wordAnimationStart,
                             trigger: element
                         }
                     }
@@ -331,9 +333,7 @@
                         animations.forEach((animation) => {
                             if (resetAnimation) animation.progress(0);
                             if (animation.scrollTrigger) {
-                                animation.scrollTrigger.enable(false);
-                                animation.scrollTrigger.refresh();
-                                animation.scrollTrigger.update();
+                                animation.scrollTrigger.enable(false, false);
                             }
                         });
                     } else {
@@ -387,7 +387,9 @@
                 enableBlur,
                 ownerView,
                 rotationEnd,
+                rotationStart,
                 scrollContainerRef,
+                wordAnimationStart,
                 wordAnimationEnd
             ]);
 
@@ -1087,7 +1089,13 @@
 
         try {
             const reactRoot = global.ReactDOM.createRoot(rootElement);
-            reactRoot.render(reactElement);
+            if (typeof global.ReactDOM.flushSync === 'function') {
+                global.ReactDOM.flushSync(() => {
+                    reactRoot.render(reactElement);
+                });
+            } else {
+                reactRoot.render(reactElement);
+            }
             rootElement.classList.add('react-bits-enhanced');
             mountedRoots.set(rootElement, reactRoot);
         } catch (error) {
@@ -1135,9 +1143,13 @@
                 key: `${viewName}-scroll-reveal`,
                 ownerView: viewName,
                 rotationEnd: rootElement.dataset.rotationEnd || 'bottom center',
+                rotationStart:
+                    rootElement.dataset.rotationStart || 'top bottom',
                 textClassName: rootElement.dataset.textClass || '',
                 wordAnimationEnd:
-                    rootElement.dataset.wordAnimationEnd || 'bottom center'
+                    rootElement.dataset.wordAnimationEnd || 'bottom center',
+                wordAnimationStart:
+                    rootElement.dataset.wordAnimationStart || 'top bottom-=20%'
             },
             text
         ));
@@ -1355,30 +1367,59 @@
         activeViewName = viewName;
         const resetAnimations = Boolean(options.resetAnimations);
         const resetScroll = Boolean(options.resetScroll);
+        const safeRefresh = Boolean(options.safeRefresh);
+        const activationId = ++activationSequence;
 
         const forceWindowToTop = () => {
             if (!resetScroll) return;
-            global.scrollTo(0, 0);
-            document.documentElement.scrollTop = 0;
+            if (typeof global.forceTerraWalkWindowToTop === 'function') {
+                global.forceTerraWalkWindowToTop();
+                return;
+            }
+
+            const root = document.documentElement;
+            const previousScrollBehavior = root.style.scrollBehavior;
+            root.style.scrollBehavior = 'auto';
+            global.scrollTo({ behavior: 'auto', left: 0, top: 0 });
+            root.scrollTop = 0;
             document.body.scrollTop = 0;
+            root.style.scrollBehavior = previousScrollBehavior;
         };
 
-        if (components && VIEW_IDS[viewName]) mountView(viewName);
-        document.dispatchEvent(new CustomEvent('terrawalk:viewchange', {
-            detail: {
-                resetAnimations,
-                viewName
-            }
-        }));
+        if (pendingActivationFrame !== null) {
+            global.cancelAnimationFrame(pendingActivationFrame);
+            pendingActivationFrame = null;
+        }
+        if (pendingRefreshFrame !== null) {
+            global.cancelAnimationFrame(pendingRefreshFrame);
+            pendingRefreshFrame = null;
+        }
 
-        global.requestAnimationFrame(() => {
-            global.requestAnimationFrame(() => {
-                if (VIEW_IDS[viewName] && global.ScrollTrigger) {
-                    global.ScrollTrigger.refresh();
-                    global.ScrollTrigger.update();
+        forceWindowToTop();
+        if (components && VIEW_IDS[viewName]) mountView(viewName);
+
+        pendingActivationFrame = global.requestAnimationFrame(() => {
+            pendingActivationFrame = null;
+            if (activationId !== activationSequence) return;
+
+            document.dispatchEvent(new CustomEvent('terrawalk:viewchange', {
+                detail: {
+                    resetAnimations,
+                    viewName
                 }
+            }));
+
+            pendingRefreshFrame = global.requestAnimationFrame(() => {
+                pendingRefreshFrame = null;
+                if (activationId !== activationSequence) return;
+
                 forceWindowToTop();
-                global.requestAnimationFrame(forceWindowToTop);
+                if (VIEW_IDS[viewName] && global.ScrollTrigger) {
+                    if (typeof global.ScrollTrigger.clearScrollMemory === 'function') {
+                        global.ScrollTrigger.clearScrollMemory('manual');
+                    }
+                    global.ScrollTrigger.refresh(safeRefresh);
+                }
             });
         });
     }
