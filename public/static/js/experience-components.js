@@ -141,7 +141,7 @@
                     : null;
                 let ownerIsActive = currentViewIsVisible(ownerView);
 
-                const syncAnimationState = () => {
+                const syncAnimationState = (resetAnimation = false) => {
                     const reduceMotion = Boolean(motionQuery?.matches);
                     const trigger = animation.scrollTrigger;
 
@@ -155,6 +155,7 @@
                             yPercent: 0
                         });
                     } else if (ownerIsActive) {
+                        if (resetAnimation) animation.progress(0);
                         if (trigger) {
                             trigger.enable(false);
                             trigger.refresh();
@@ -166,7 +167,7 @@
                 };
                 const handleViewChange = (event) => {
                     ownerIsActive = event.detail?.viewName === ownerView;
-                    syncAnimationState();
+                    syncAnimationState(Boolean(event.detail?.resetAnimations));
                 };
                 const handleMotionChange = () => syncAnimationState();
 
@@ -311,7 +312,7 @@
                     : null;
                 let ownerIsActive = currentViewIsVisible(ownerView);
 
-                const syncAnimationState = () => {
+                const syncAnimationState = (resetAnimation = false) => {
                     const reduceMotion = Boolean(motionQuery?.matches);
 
                     if (reduceMotion) {
@@ -328,6 +329,7 @@
                         });
                     } else if (ownerIsActive) {
                         animations.forEach((animation) => {
+                            if (resetAnimation) animation.progress(0);
                             if (animation.scrollTrigger) {
                                 animation.scrollTrigger.enable(false);
                                 animation.scrollTrigger.refresh();
@@ -344,7 +346,7 @@
                 };
                 const handleViewChange = (event) => {
                     ownerIsActive = event.detail?.viewName === ownerView;
-                    syncAnimationState();
+                    syncAnimationState(Boolean(event.detail?.resetAnimations));
                 };
                 const handleMotionChange = () => syncAnimationState();
 
@@ -695,6 +697,9 @@
 
                 const handleViewChange = (event) => {
                     activeRef.current = event.detail?.viewName === ownerView;
+                    const resetAnimation = Boolean(
+                        event.detail?.resetAnimations && activeRef.current
+                    );
                     if (lenisRef.current) {
                         if (activeRef.current && !motionReducedRef.current) {
                             lenisRef.current.start();
@@ -705,6 +710,15 @@
                         }
                     }
                     if (activeRef.current && !motionReducedRef.current) {
+                        if (resetAnimation) {
+                            stackCompletedRef.current = false;
+                            lastTransformsRef.current.clear();
+                            cards.forEach((card) => {
+                                card.style.filter = 'none';
+                                card.style.transform = 'translateZ(0)';
+                                card.style.webkitTransform = 'translateZ(0)';
+                            });
+                        }
                         global.requestAnimationFrame(() => {
                             updateCardTransforms();
                         });
@@ -1337,18 +1351,25 @@
         );
     }
 
-    function activateView(viewName) {
+    function activateView(viewName, options = {}) {
         activeViewName = viewName;
+        const resetAnimations = Boolean(options.resetAnimations);
 
         if (components && VIEW_IDS[viewName]) mountView(viewName);
         document.dispatchEvent(new CustomEvent('terrawalk:viewchange', {
-            detail: { viewName }
+            detail: {
+                resetAnimations,
+                viewName
+            }
         }));
 
         global.requestAnimationFrame(() => {
-            if (VIEW_IDS[viewName] && global.ScrollTrigger) {
-                global.ScrollTrigger.refresh();
-            }
+            global.requestAnimationFrame(() => {
+                if (VIEW_IDS[viewName] && global.ScrollTrigger) {
+                    global.ScrollTrigger.refresh();
+                    global.ScrollTrigger.update();
+                }
+            });
         });
     }
 
