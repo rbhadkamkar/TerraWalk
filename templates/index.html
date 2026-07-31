@@ -1363,6 +1363,14 @@
         }
 
         function resetViewScrollPosition(viewElement) {
+            if (window.location.hash && window.history?.replaceState) {
+                window.history.replaceState(
+                    null,
+                    document.title,
+                    `${window.location.pathname}${window.location.search}`
+                );
+            }
+
             window.scrollTo(0, 0);
             document.documentElement.scrollTop = 0;
             document.body.scrollTop = 0;
@@ -1416,7 +1424,12 @@
 
             if (typeof window.activateTerraWalkExperience === 'function') {
                 window.activateTerraWalkExperience(viewName, {
-                    resetAnimations: true
+                    resetAnimations: true,
+                    resetScroll: true
+                });
+            } else {
+                requestAnimationFrame(() => {
+                    resetViewScrollPosition(activeView);
                 });
             }
         }

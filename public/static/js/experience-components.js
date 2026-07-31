@@ -1354,6 +1354,14 @@
     function activateView(viewName, options = {}) {
         activeViewName = viewName;
         const resetAnimations = Boolean(options.resetAnimations);
+        const resetScroll = Boolean(options.resetScroll);
+
+        const forceWindowToTop = () => {
+            if (!resetScroll) return;
+            global.scrollTo(0, 0);
+            document.documentElement.scrollTop = 0;
+            document.body.scrollTop = 0;
+        };
 
         if (components && VIEW_IDS[viewName]) mountView(viewName);
         document.dispatchEvent(new CustomEvent('terrawalk:viewchange', {
@@ -1369,6 +1377,8 @@
                     global.ScrollTrigger.refresh();
                     global.ScrollTrigger.update();
                 }
+                forceWindowToTop();
+                global.requestAnimationFrame(forceWindowToTop);
             });
         });
     }
